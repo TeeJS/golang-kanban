@@ -54,22 +54,19 @@
 </head>
 <body class="min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200">
 <div class="container mx-auto py-8 px-4">
-  <!-- Header with title and dark mode toggle -->
-  <div class="flex justify-between items-center mb-8">
-    <button 
-      id="darkModeToggle" 
-      class="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors duration-200"
+  <!-- Top action row -->
+  <div class="relative flex justify-center items-center mb-8">
+    <button class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition-all duration-200 transform hover:scale-105" onclick="showModal('addCardModal')">
+      <i class="bi bi-plus mr-2"></i>Add New Card
+    </button>
+
+    <button
+      id="darkModeToggle"
+      class="absolute right-0 p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors duration-200"
       title="Toggle dark mode"
     >
       <i class="bi bi-sun text-xl dark:hidden"></i>
       <i class="bi bi-moon text-xl hidden dark:inline"></i>
-    </button>
-  </div>
-  
-  <!-- Global Add New Card Button -->
-  <div class="flex justify-center mb-8">
-    <button class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition-all duration-200 transform hover:scale-105" onclick="showModal('addCardModal')">
-      <i class="bi bi-plus mr-2"></i>Add New Card
     </button>
   </div>
   
@@ -260,19 +257,18 @@
         group: 'kanban',
         animation: 150,
         onEnd: function(evt) {
-          // Get destination container ordering.
           let destContainer = evt.to;
           let destCardIds = Array.from(destContainer.children)
               .map(child => child.getAttribute('data-id'))
               .filter(id => id !== null);
           let destStatus = destContainer.id.replace('cards-', '');
-          // Update destination lane.
+
           fetch("/card/order", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ status: destStatus, order: destCardIds.map(Number) })
           });
-          // If card moved from another lane, update the origin lane as well.
+
           if (evt.from !== evt.to) {
             let originContainer = evt.from;
             let originCardIds = Array.from(originContainer.children)
@@ -290,7 +286,6 @@
     }
   });
 
-  // Function to initialize dynamic subtasks on a container.
   function initSubtasks(container) {
     container.addEventListener('click', function(e) {
       let btn = e.target.closest('.remove-subtask-btn');
@@ -317,7 +312,6 @@
     }
   }
 
-  // Function to collect subtasks data before form submission.
   function prepareSubtasks(form) {
     const container = form.querySelector('.subtasks-container');
     const hidden = form.querySelector('.subtasks-hidden');
@@ -333,9 +327,7 @@
     return true;
   }
 
-  // HTMX afterSwap handler.
   document.body.addEventListener("htmx:afterSwap", function(evt) {
-    // If new card added (target is cards-todo), hide the Add Card modal and reset its form.
     if (evt.detail.target.id === "cards-todo") {
       hideModal('addCardModal');
       var form = document.getElementById('addCardForm');
@@ -345,19 +337,18 @@
         if (container) { container.innerHTML = ""; }
       }
     }
-    // If the edit form is loaded into the modal, show the modal and initialize subtasks.
+
     if (evt.detail.target.id === "editCardModalContent") {
       showModal('editCardModal');
       var container = document.getElementById('editCardModalContent').querySelector('.subtasks-container');
       if (container) { initSubtasks(container); }
     }
-    // After a card update (target id starts with "card-"), hide the edit modal.
+
     if (evt.detail.target && evt.detail.target.id && evt.detail.target.id.startsWith("card-")) {
       hideModal('editCardModal');
     }
   });
 
-  // Initialize everything on page load.
   document.addEventListener("DOMContentLoaded", function() {
     initDarkMode();
     var addForm = document.getElementById('addCardForm');
