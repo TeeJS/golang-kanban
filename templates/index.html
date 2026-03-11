@@ -128,9 +128,19 @@
       
       <!-- Done Column -->
       <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-        <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
-          <i class="bi bi-check-circle text-green-500 mr-2"></i>Done
-        </h3>
+        <div class="flex items-center justify-between mb-4 border-b border-gray-200 dark:border-gray-600 pb-2">
+          <h3 class="text-xl font-bold text-gray-700 dark:text-gray-300">
+            <i class="bi bi-check-circle text-green-500 mr-2"></i>Done
+          </h3>
+          <button
+            type="button"
+            onclick="clearDoneColumn()"
+            title="Clear Done"
+            class="text-red-500 hover:text-red-700 transition-colors duration-200"
+          >
+            <i class="bi bi-trash text-lg"></i>
+          </button>
+        </div>
         <div id="cards-done" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
           {{range .done}}
             {{template "card_fragment.html" .}}
@@ -216,6 +226,26 @@
   
   function hideModal(modalId) {
     document.getElementById(modalId).classList.remove('show');
+  }
+
+  function clearDoneColumn() {
+    if (!confirm("Delete all cards in Done?")) {
+      return;
+    }
+
+    const doneContainer = document.getElementById("cards-done");
+    const doneCardIds = Array.from(doneContainer.children)
+      .map(child => child.getAttribute('data-id'))
+      .filter(id => id !== null)
+      .map(Number);
+
+    Promise.all(doneCardIds.map(function(cardId) {
+      return fetch("/card/" + cardId + "/delete", {
+        method: "POST"
+      });
+    })).then(function() {
+      doneContainer.innerHTML = "";
+    });
   }
   
   // Close modal when clicking outside
