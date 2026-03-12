@@ -36,6 +36,7 @@ type Card struct {
 	Description string
 	Subtasks    string
 	Status      string
+	Category    string
 	CardOrder   int
 }
 
