@@ -63,8 +63,8 @@
         <button
           class="text-blue-500 hover:text-blue-400 transition-colors duration-150"
           hx-get="/card/{{.ID}}/edit"
-          hx-target="#card-{{.ID}}"
-          hx-swap="outerHTML"
+          hx-target="#editCardModalContent"
+          hx-swap="innerHTML"
           title="Edit card"
           aria-label="Edit card"
         >
