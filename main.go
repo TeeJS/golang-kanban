@@ -108,8 +108,8 @@ func getEnv(key, def string) string {
 
 func getCardByID(id int) (*Card, error) {
 	var card Card
-	err := db.QueryRow("SELECT id, title, description, subtasks, status, card_order FROM cards WHERE id=$1", id).
-		Scan(&card.ID, &card.Title, &card.Description, &card.Subtasks, &card.Status, &card.CardOrder)
+	err := db.QueryRow("SELECT id, title, description, subtasks, status, category, card_order FROM cards WHERE id=$1", id).
+        Scan(&card.ID, &card.Title, &card.Description, &card.Subtasks, &card.Status, &card.Category, &card.CardOrder)
 	if err != nil {
 		return nil, err
 	}
