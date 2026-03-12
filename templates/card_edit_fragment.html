@@ -1,112 +1,101 @@
 {{define "card_fragment.html"}}
 <div
-  class="bg-slate-600/70 dark:bg-slate-600/70 rounded-xl shadow-md px-4 py-5 text-white"
+  class="bg-slate-600/70 dark:bg-slate-600/70 rounded-xl shadow-md p-5"
   id="card-{{.ID}}"
   data-id="{{.ID}}"
+  data-card-id="{{.ID}}"
 >
   <div class="flex items-start justify-between gap-3">
-    <h4 class="text-[17px] font-semibold leading-snug pr-2 break-words">{{.Title}}</h4>
+    <h4 class="text-white text-2xl font-semibold leading-tight break-words flex-1">{{.Title}}</h4>
 
-    {{if .Subtasks}}
+    {{if hasSubtasks .Subtasks}}
     <button
       type="button"
-      class="shrink-0 text-slate-200 hover:text-white transition-colors"
+      class="text-gray-300 hover:text-white transition-colors duration-150 shrink-0"
       aria-label="Toggle subtasks"
       title="Toggle subtasks"
-      onclick="(function(){
-        const card = document.getElementById('card-{{.ID}}');
-        const subtasks = document.getElementById('subtasks-{{.ID}}');
-        const icon = document.getElementById('toggle-icon-{{.ID}}');
-        if (!card || !subtasks || !icon) return;
+      onclick="(function(btn){
+        const card = btn.closest('[data-card-id]');
+        if (!card) return;
+        const subtasks = card.querySelector('.subtasks-section');
+        const icon = btn.querySelector('i');
+        if (!subtasks || !icon) return;
+
         subtasks.classList.toggle('hidden');
-        icon.classList.toggle('bi-chevron-right');
-        icon.classList.toggle('bi-chevron-down');
-      })()"
+
+        if (subtasks.classList.contains('hidden')) {
+          icon.classList.remove('bi-chevron-down');
+          icon.classList.add('bi-chevron-right');
+        } else {
+          icon.classList.remove('bi-chevron-right');
+          icon.classList.add('bi-chevron-down');
+        }
+      })(this)"
     >
-      <i id="toggle-icon-{{.ID}}" class="bi bi-chevron-right text-base"></i>
+      <i class="bi bi-chevron-right text-lg"></i>
     </button>
     {{end}}
   </div>
 
   {{if .Description}}
-  <p class="mt-2 text-sm text-slate-100 whitespace-pre-line break-words">{{.Description}}</p>
+  <div class="mt-3 text-gray-200 text-sm whitespace-pre-line">{{.Description}}</div>
   {{end}}
 
-  <div id="subtasks-{{.ID}}" class="{{if .Subtasks}}hidden{{end}} mt-3 space-y-2">
-    {{if .Subtasks}}
-      {{range $line := split .Subtasks "\n"}}
-        {{$line = trim $line}}
-        {{if $line}}
-          {{$parts := split $line "|"}}
-          <div class="flex items-center gap-2 text-sm text-slate-100 subtask-line">
-            {{if eq (index $parts 0) "1"}}
-              <i class="bi bi-check-square text-slate-200" data-subtask-state="complete"></i>
-              <span class="line-through text-slate-300 break-words">{{index $parts 1}}</span>
-            {{else}}
-              <i class="bi bi-square text-slate-200" data-subtask-state="incomplete"></i>
-              <span class="break-words">{{index $parts 1}}</span>
-            {{end}}
-          </div>
-        {{end}}
-      {{end}}
-    {{end}}
-  </div>
-
-  <div class="mt-4 border-t border-slate-400/70 pt-3 grid grid-cols-3 items-center">
-    <button
-      class="justify-self-start text-blue-400 hover:text-blue-300 transition-colors"
-      hx-get="/card/{{.ID}}/edit"
-      hx-target="#editCardModalContent"
-      hx-swap="innerHTML"
-      title="Edit card"
-      aria-label="Edit card"
-    >
-      <i class="bi bi-pencil text-lg"></i>
-    </button>
-
-    <div class="justify-self-center min-h-[24px] flex items-center">
-      {{if .Subtasks}}
-      <i id="subtask-summary-{{.ID}}" class="bi bi-square text-lg text-slate-100" title="Subtasks incomplete" aria-label="Subtasks incomplete"></i>
+  {{if hasSubtasks .Subtasks}}
+  <div class="subtasks-section hidden mt-3 space-y-2">
+    {{range $subtask := parseSubtasks .Subtasks}}
+    <div class="flex items-start gap-2 text-gray-200">
+      {{if $subtask.Completed}}
+      <i class="bi bi-check-square text-sm mt-0.5 text-gray-300"></i>
+      <span class="text-sm line-through text-gray-400">{{$subtask.Text}}</span>
+      {{else}}
+      <i class="bi bi-square text-sm mt-0.5 text-gray-300"></i>
+      <span class="text-sm">{{$subtask.Text}}</span>
       {{end}}
     </div>
+    {{end}}
+  </div>
+  {{end}}
 
-    <button
-      class="justify-self-end text-red-500 hover:text-red-400 transition-colors"
-      hx-post="/card/{{.ID}}/delete"
-      hx-target="#card-{{.ID}}"
-      hx-swap="outerHTML"
-      hx-confirm="Delete this card?"
-      title="Delete card"
-      aria-label="Delete card"
-    >
-      <i class="bi bi-trash text-lg"></i>
-    </button>
+  <div class="border-t border-slate-500/70 mt-4 pt-4">
+    <div class="grid grid-cols-3 items-center">
+      <div class="justify-self-start">
+        <button
+          class="text-blue-500 hover:text-blue-400 transition-colors duration-150"
+          hx-get="/card/{{.ID}}/edit"
+          hx-target="#card-{{.ID}}"
+          hx-swap="outerHTML"
+          title="Edit card"
+          aria-label="Edit card"
+        >
+          <i class="bi bi-pencil text-lg"></i>
+        </button>
+      </div>
+
+      <div class="justify-self-center">
+        {{if hasSubtasks .Subtasks}}
+          {{if allSubtasksComplete .Subtasks}}
+          <i class="bi bi-check-square text-gray-200 text-xl" title="All subtasks complete" aria-label="All subtasks complete"></i>
+          {{else}}
+          <i class="bi bi-square text-gray-200 text-xl" title="Subtasks incomplete" aria-label="Subtasks incomplete"></i>
+          {{end}}
+        {{end}}
+      </div>
+
+      <div class="justify-self-end">
+        <button
+          class="text-red-500 hover:text-red-400 transition-colors duration-150"
+          hx-post="/card/{{.ID}}/delete"
+          hx-target="#card-{{.ID}}"
+          hx-swap="outerHTML"
+          hx-confirm="Delete this card?"
+          title="Delete card"
+          aria-label="Delete card"
+        >
+          <i class="bi bi-trash text-lg"></i>
+        </button>
+      </div>
+    </div>
   </div>
 </div>
-
-{{if .Subtasks}}
-<script>
-(function() {
-  const card = document.getElementById('card-{{.ID}}');
-  const summaryIcon = document.getElementById('subtask-summary-{{.ID}}');
-  if (!card || !summaryIcon) return;
-
-  const states = Array.from(card.querySelectorAll('[data-subtask-state]')).map(function(el) {
-    return el.getAttribute('data-subtask-state');
-  });
-
-  if (states.length > 0 && states.every(function(state) { return state === 'complete'; })) {
-    summaryIcon.classList.remove('bi-square');
-    summaryIcon.classList.add('bi-check-square');
-    summaryIcon.setAttribute('title', 'All subtasks complete');
-    summaryIcon.setAttribute('aria-label', 'All subtasks complete');
-  } else {
-    summaryIcon.classList.remove('bi-check-square');
-    summaryIcon.classList.add('bi-square');
-    summaryIcon.setAttribute('title', 'Subtasks incomplete');
-    summaryIcon.setAttribute('aria-label', 'Subtasks incomplete');
-  }
-})();
-</script>
-{{end}}
 {{end}}
