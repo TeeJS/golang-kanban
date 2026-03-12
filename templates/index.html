@@ -1,493 +1,658 @@
-package main
-
-import (
-	"database/sql"
-	"encoding/json"
-	"html/template"
-	"log"
-	"net/http"
-	"os"
-	"strconv"
-	"strings"
-
-	_ "github.com/lib/pq"
-)
-
-const (
-	StatusTomorrow      = "tomorrow"
-	StatusTodo          = "todo"
-	StatusInProgress    = "inprogress"
-	StatusNeedsFeedback = "needsfeedback"
-	StatusDone          = "done"
-
-	CategoryWork     = "work"
-	CategoryPersonal = "personal"
-	CategoryStardom  = "stardom"
-)
-
-func isValidStatus(status string) bool {
-	switch status {
-	case StatusTomorrow, StatusTodo, StatusInProgress, StatusNeedsFeedback, StatusDone:
-		return true
-	default:
-		return false
-	}
-}
-
-func isValidCategory(category string) bool {
-	switch category {
-	case CategoryWork, CategoryPersonal, CategoryStardom:
-		return true
-	default:
-		return false
-	}
-}
-
-type Card struct {
-	ID          int
-	Title       string
-	Description string
-	Subtasks    string
-	Status      string
-	Category    string
-	CardOrder   int
-}
-
-type BoardData map[string]map[string][]Card
-
-var db *sql.DB
-var tmpl *template.Template
-
-type OrderUpdatePayload struct {
-	Category string `json:"category"`
-	Status   string `json:"status"`
-	Order    []int  `json:"order"`
-}
-
-func main() {
-	dbUser := getEnv("DB_USER", "user")
-	dbPass := getEnv("DB_PASS", "password")
-	dbHost := getEnv("DB_HOST", "postgres")
-	dbPort := getEnv("DB_PORT", "5432")
-	dbName := getEnv("DB_NAME", "kanban")
-
-	connStr := "postgres://" + dbUser + ":" + dbPass + "@" + dbHost + ":" + dbPort + "/" + dbName + "?sslmode=disable"
-
-	var err error
-	db, err = sql.Open("postgres", connStr)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	db.SetMaxOpenConns(5)
-	db.SetMaxIdleConns(1)
-
-	defer func() {
-		if err := db.Close(); err != nil {
-			log.Printf("Error closing database: %v", err)
-		}
-	}()
-
-	funcMap := template.FuncMap{
-		"split": func(s, sep string) []string {
-			s = strings.TrimSpace(s)
-			if s == "" {
-				return nil
-			}
-			return strings.Split(s, sep)
-		},
-		"trim": strings.TrimSpace,
-	}
-
-	tmpl = template.Must(template.New("").Funcs(funcMap).ParseGlob("templates/*.html"))
-
-	http.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	})
-	http.HandleFunc("/", indexHandler)
-	http.HandleFunc("/card", createCardHandler)
-	http.HandleFunc("/card/", cardRouter)
-	http.HandleFunc("/card/order", updateOrderHandler)
-
-	serverPort := getEnv("SERVER_PORT", "17808")
-	log.Println("Server started on :" + serverPort)
-	log.Fatal(http.ListenAndServe(":"+serverPort, nil))
-}
-
-func getEnv(key, def string) string {
-	v := os.Getenv(key)
-	if v == "" {
-		return def
-	}
-	return v
-}
-
-func newBoardData() BoardData {
-	return BoardData{
-		CategoryWork: {
-			StatusTomorrow:      {},
-			StatusTodo:          {},
-			StatusInProgress:    {},
-			StatusNeedsFeedback: {},
-			StatusDone:          {},
-		},
-		CategoryPersonal: {
-			StatusTomorrow:      {},
-			StatusTodo:          {},
-			StatusInProgress:    {},
-			StatusNeedsFeedback: {},
-			StatusDone:          {},
-		},
-		CategoryStardom: {
-			StatusTomorrow:      {},
-			StatusTodo:          {},
-			StatusInProgress:    {},
-			StatusNeedsFeedback: {},
-			StatusDone:          {},
-		},
-	}
-}
-
-func getCardByID(id int) (*Card, error) {
-	var card Card
-	err := db.QueryRow("SELECT id, title, description, subtasks, status, category, card_order FROM cards WHERE id=$1", id).
-		Scan(&card.ID, &card.Title, &card.Description, &card.Subtasks, &card.Status, &card.Category, &card.CardOrder)
-	if err != nil {
-		return nil, err
-	}
-	return &card, nil
-}
-
-func indexHandler(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-
-	boardData := newBoardData()
-
-	rows, err := db.Query(`
-		SELECT id, title, description, subtasks, status, category, card_order
-		FROM cards
-		ORDER BY
-			CASE category
-				WHEN 'work' THEN 1
-				WHEN 'personal' THEN 2
-				WHEN 'stardom' THEN 3
-				ELSE 99
-			END,
-			CASE status
-				WHEN 'tomorrow' THEN 1
-				WHEN 'todo' THEN 2
-				WHEN 'inprogress' THEN 3
-				WHEN 'needsfeedback' THEN 4
-				WHEN 'done' THEN 5
-				ELSE 99
-			END,
-			card_order
-	`)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer func() {
-		if err := rows.Close(); err != nil {
-			log.Printf("Error closing rows: %v", err)
-		}
-	}()
-
-	for rows.Next() {
-		var c Card
-		if err := rows.Scan(&c.ID, &c.Title, &c.Description, &c.Subtasks, &c.Status, &c.Category, &c.CardOrder); err != nil {
-			continue
-		}
-
-		if !isValidCategory(c.Category) || !isValidStatus(c.Status) {
-			continue
-		}
-
-		boardData[c.Category][c.Status] = append(boardData[c.Category][c.Status], c)
-	}
-
-	if err := tmpl.ExecuteTemplate(w, "index.html", boardData); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-func createCardHandler(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/card" || r.Method != http.MethodPost {
-		http.NotFound(w, r)
-		return
-	}
-
-	title := r.FormValue("title")
-	description := r.FormValue("description")
-	subtasks := r.FormValue("subtasks")
-	status := r.FormValue("status")
-	category := r.FormValue("category")
-
-	if !isValidStatus(status) {
-		status = StatusTodo
-	}
-	if !isValidCategory(category) {
-		category = CategoryWork
-	}
-
-	if strings.TrimSpace(title) == "" && strings.TrimSpace(description) == "" && strings.TrimSpace(subtasks) == "" {
-		http.Error(w, "Empty card not allowed", http.StatusBadRequest)
-		return
-	}
-
-	var maxOrder int
-	err := db.QueryRow(
-		"SELECT COALESCE(MAX(card_order), 0) FROM cards WHERE category=$1 AND status=$2",
-		category, status,
-	).Scan(&maxOrder)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	maxOrder++
-
-	var newID int
-	err = db.QueryRow(
-		"INSERT INTO cards (title, description, subtasks, status, category, card_order) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
-		title, description, subtasks, status, category, maxOrder,
-	).Scan(&newID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	card := Card{
-		ID:          newID,
-		Title:       title,
-		Description: description,
-		Subtasks:    subtasks,
-		Status:      status,
-		Category:    category,
-		CardOrder:   maxOrder,
-	}
-
-	if r.Header.Get("HX-Request") != "" {
-		if err := tmpl.ExecuteTemplate(w, "card_fragment.html", card); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-		return
-	}
-
-	http.Redirect(w, r, "/", http.StatusSeeOther)
-}
-
-func cardRouter(w http.ResponseWriter, r *http.Request) {
-	parts := strings.Split(r.URL.Path, "/")
-	if len(parts) < 4 {
-		http.NotFound(w, r)
-		return
-	}
-
-	id, err := strconv.Atoi(parts[2])
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-
-	action := parts[3]
-	switch action {
-	case "move":
-		moveCardHandler(w, r, id)
-	case "edit":
-		editCardHandler(w, r, id)
-	case "update":
-		updateCardHandler(w, r, id)
-	case "delete":
-		deleteCardHandler(w, r, id)
-	case "view":
-		viewCardHandler(w, r, id)
-	default:
-		http.NotFound(w, r)
-	}
-}
-
-func moveCardHandler(w http.ResponseWriter, r *http.Request, id int) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	newStatus := r.FormValue("status")
-	newCategory := r.FormValue("category")
-
-	if !isValidStatus(newStatus) {
-		http.Error(w, "Invalid status", http.StatusBadRequest)
-		return
-	}
-	if !isValidCategory(newCategory) {
-		http.Error(w, "Invalid category", http.StatusBadRequest)
-		return
-	}
-
-	newOrder, err := strconv.Atoi(r.FormValue("order"))
-	if err != nil {
-		http.Error(w, "Invalid order", http.StatusBadRequest)
-		return
-	}
-
-	_, err = db.Exec("UPDATE cards SET category=$1, status=$2, card_order=$3 WHERE id=$4", newCategory, newStatus, newOrder, id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	_, err = db.Exec(`
-		WITH OrderedCards AS (
-			SELECT id, ROW_NUMBER() OVER (ORDER BY card_order, id) AS new_order
-			FROM cards
-			WHERE category = $1 AND status = $2
-		)
-		UPDATE cards
-		SET card_order = OrderedCards.new_order
-		FROM OrderedCards
-		WHERE cards.id = OrderedCards.id;
-	`, newCategory, newStatus)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if _, err := w.Write([]byte("OK")); err != nil {
-		log.Printf("Error writing response: %v", err)
-	}
-}
-
-func editCardHandler(w http.ResponseWriter, r *http.Request, id int) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	card, err := getCardByID(id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	}
-
-	if err := tmpl.ExecuteTemplate(w, "card_edit_fragment.html", card); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-func updateCardHandler(w http.ResponseWriter, r *http.Request, id int) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	title := r.FormValue("title")
-	description := r.FormValue("description")
-	subtasks := r.FormValue("subtasks")
-
-	_, err := db.Exec("UPDATE cards SET title=$1, description=$2, subtasks=$3 WHERE id=$4", title, description, subtasks, id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	updated, err := getCardByID(id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	}
-
-	if err := tmpl.ExecuteTemplate(w, "card_fragment.html", updated); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-func deleteCardHandler(w http.ResponseWriter, r *http.Request, id int) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	_, err := db.Exec("DELETE FROM cards WHERE id=$1", id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if _, err := w.Write([]byte("OK")); err != nil {
-		log.Printf("Error writing response: %v", err)
-	}
-}
-
-func viewCardHandler(w http.ResponseWriter, r *http.Request, id int) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	card, err := getCardByID(id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	}
-
-	if err := tmpl.ExecuteTemplate(w, "card_fragment.html", card); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-func updateOrderHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var payload OrderUpdatePayload
-	err := json.NewDecoder(r.Body).Decode(&payload)
-	if err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	if !isValidCategory(payload.Category) {
-		http.Error(w, "Invalid category", http.StatusBadRequest)
-		return
-	}
-	if !isValidStatus(payload.Status) {
-		http.Error(w, "Invalid status", http.StatusBadRequest)
-		return
-	}
-
-	for index, cardID := range payload.Order {
-		_, err := db.Exec(
-			"UPDATE cards SET category=$1, status=$2, card_order=$3 WHERE id=$4",
-			payload.Category, payload.Status, index+1, cardID,
-		)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	}
-
-	_, err = db.Exec(`
-		WITH OrderedCards AS (
-			SELECT id, ROW_NUMBER() OVER (ORDER BY card_order, id) AS new_order
-			FROM cards
-			WHERE category = $1 AND status = $2
-		)
-		UPDATE cards
-		SET card_order = OrderedCards.new_order
-		FROM OrderedCards
-		WHERE cards.id = OrderedCards.id;
-	`, payload.Category, payload.Status)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if _, err := w.Write([]byte("OK")); err != nil {
-		log.Printf("Error writing response: %v", err)
-	}
-}
+<!DOCTYPE html>
+<html class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <title>Kanban Board</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {}
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.5/font/bootstrap-icons.min.css" integrity="sha512-ZnR2wlLbSbr8/c9AgLg3jQPAattCUImNsae6NHYnS9KrIwRdcY9DxFotXhNAKIKbAXlRnujIqUWoXXwqyFOeIQ==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/2.0.4/htmx.min.js" integrity="sha512-2kIcAizYXhIn8TzUvqzEDZNuDZ+aW7yE/+f1HJHXFjQcGNfv1kqzJSTBRBSlOgp6B/KZsz1K0a3ZTqP9dnxioQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.6/Sortable.min.js" integrity="sha512-csIng5zcB+XpulRUa+ev1zKo7zRNGpEaVfNB9On1no9KYTEY/rLGAEEpvgdw6nim1WdTuihZY1eqZ31K7/fZjw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <style>
+    .modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+    .modal.show {
+      display: flex;
+    }
+    .modal-dialog {
+      max-width: 500px;
+      width: 90%;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal-content {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+    }
+    .dark .modal-content {
+      background: #374151;
+      color: white;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200">
+<div class="container mx-auto py-8 px-4">
+  <div class="relative flex justify-center items-center mb-8">
+    <button class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition-all duration-200 transform hover:scale-105" onclick="showModal('addCardModal')">
+      <i class="bi bi-plus mr-2"></i>Add New Card
+    </button>
+
+    <button
+      id="darkModeToggle"
+      class="absolute right-0 p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors duration-200"
+      title="Toggle dark mode"
+    >
+      <i class="bi bi-sun text-xl dark:hidden"></i>
+      <i class="bi bi-moon text-xl hidden dark:inline"></i>
+    </button>
+  </div>
+
+  <div class="max-w-7xl mx-auto space-y-4">
+    <!-- Work -->
+    <section class="bg-gray-200 dark:bg-gray-800/40 rounded-xl shadow-md">
+      <div class="flex items-center justify-between px-4 py-2">
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            onclick="toggleBoardRow('work')"
+            class="text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+            title="Toggle Work"
+          >
+            <i id="toggle-icon-work" class="bi bi-chevron-right text-sm"></i>
+          </button>
+          <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-200">Work</h2>
+          <button
+            type="button"
+            onclick="editRowTitle('work')"
+            class="text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors"
+            title="Rename Work"
+          >
+            <i class="bi bi-pencil text-xs"></i>
+          </button>
+        </div>
+      </div>
+
+      <div id="row-work" class="hidden px-2 pb-3">
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6">
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
+              <i class="bi bi-calendar-day text-orange-500 mr-2"></i>Tomorrow
+            </h3>
+            <div id="cards-work-tomorrow" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
+              {{range index (index . "work") "tomorrow"}}
+                {{template "card_fragment.html" .}}
+              {{end}}
+            </div>
+          </div>
+
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
+              <i class="bi bi-clock text-yellow-500 mr-2"></i>To Do
+            </h3>
+            <div id="cards-work-todo" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
+              {{range index (index . "work") "todo"}}
+                {{template "card_fragment.html" .}}
+              {{end}}
+            </div>
+          </div>
+
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
+              <i class="bi bi-arrow-repeat text-blue-500 mr-2"></i>In Progress
+            </h3>
+            <div id="cards-work-inprogress" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
+              {{range index (index . "work") "inprogress"}}
+                {{template "card_fragment.html" .}}
+              {{end}}
+            </div>
+          </div>
+
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
+              <i class="bi bi-chat-left-dots text-purple-500 mr-2"></i>Needs Feedback
+            </h3>
+            <div id="cards-work-needsfeedback" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
+              {{range index (index . "work") "needsfeedback"}}
+                {{template "card_fragment.html" .}}
+              {{end}}
+            </div>
+          </div>
+
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+            <div class="flex items-center justify-between mb-4 border-b border-gray-200 dark:border-gray-600 pb-2">
+              <h3 class="text-xl font-bold text-gray-700 dark:text-gray-300">
+                <i class="bi bi-check-circle text-green-500 mr-2"></i>Done
+              </h3>
+              <button
+                type="button"
+                onclick="clearDoneColumn('work')"
+                title="Clear Done"
+                class="text-red-500 hover:text-red-700 transition-colors duration-200"
+              >
+                <i class="bi bi-trash text-lg"></i>
+              </button>
+            </div>
+            <div id="cards-work-done" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
+              {{range index (index . "work") "done"}}
+                {{template "card_fragment.html" .}}
+              {{end}}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Personal -->
+    <section class="bg-gray-200 dark:bg-gray-800/40 rounded-xl shadow-md">
+      <div class="flex items-center justify-between px-4 py-2">
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            onclick="toggleBoardRow('personal')"
+            class="text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+            title="Toggle Personal"
+          >
+            <i id="toggle-icon-personal" class="bi bi-chevron-right text-sm"></i>
+          </button>
+          <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-200">Personal</h2>
+          <button
+            type="button"
+            onclick="editRowTitle('personal')"
+            class="text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors"
+            title="Rename Personal"
+          >
+            <i class="bi bi-pencil text-xs"></i>
+          </button>
+        </div>
+      </div>
+
+      <div id="row-personal" class="hidden px-2 pb-3">
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6">
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
+              <i class="bi bi-calendar-day text-orange-500 mr-2"></i>Tomorrow
+            </h3>
+            <div id="cards-personal-tomorrow" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
+              {{range index (index . "personal") "tomorrow"}}
+                {{template "card_fragment.html" .}}
+              {{end}}
+            </div>
+          </div>
+
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
+              <i class="bi bi-clock text-yellow-500 mr-2"></i>To Do
+            </h3>
+            <div id="cards-personal-todo" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
+              {{range index (index . "personal") "todo"}}
+                {{template "card_fragment.html" .}}
+              {{end}}
+            </div>
+          </div>
+
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
+              <i class="bi bi-arrow-repeat text-blue-500 mr-2"></i>In Progress
+            </h3>
+            <div id="cards-personal-inprogress" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
+              {{range index (index . "personal") "inprogress"}}
+                {{template "card_fragment.html" .}}
+              {{end}}
+            </div>
+          </div>
+
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
+              <i class="bi bi-chat-left-dots text-purple-500 mr-2"></i>Needs Feedback
+            </h3>
+            <div id="cards-personal-needsfeedback" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
+              {{range index (index . "personal") "needsfeedback"}}
+                {{template "card_fragment.html" .}}
+              {{end}}
+            </div>
+          </div>
+
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+            <div class="flex items-center justify-between mb-4 border-b border-gray-200 dark:border-gray-600 pb-2">
+              <h3 class="text-xl font-bold text-gray-700 dark:text-gray-300">
+                <i class="bi bi-check-circle text-green-500 mr-2"></i>Done
+              </h3>
+              <button
+                type="button"
+                onclick="clearDoneColumn('personal')"
+                title="Clear Done"
+                class="text-red-500 hover:text-red-700 transition-colors duration-200"
+              >
+                <i class="bi bi-trash text-lg"></i>
+              </button>
+            </div>
+            <div id="cards-personal-done" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
+              {{range index (index . "personal") "done"}}
+                {{template "card_fragment.html" .}}
+              {{end}}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Stardom -->
+    <section class="bg-gray-200 dark:bg-gray-800/40 rounded-xl shadow-md">
+      <div class="flex items-center justify-between px-4 py-2">
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            onclick="toggleBoardRow('stardom')"
+            class="text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+            title="Toggle Stardom"
+          >
+            <i id="toggle-icon-stardom" class="bi bi-chevron-right text-sm"></i>
+          </button>
+          <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-200">Stardom</h2>
+          <button
+            type="button"
+            onclick="editRowTitle('stardom')"
+            class="text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors"
+            title="Rename Stardom"
+          >
+            <i class="bi bi-pencil text-xs"></i>
+          </button>
+        </div>
+      </div>
+
+      <div id="row-stardom" class="hidden px-2 pb-3">
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6">
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
+              <i class="bi bi-calendar-day text-orange-500 mr-2"></i>Tomorrow
+            </h3>
+            <div id="cards-stardom-tomorrow" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
+              {{range index (index . "stardom") "tomorrow"}}
+                {{template "card_fragment.html" .}}
+              {{end}}
+            </div>
+          </div>
+
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
+              <i class="bi bi-clock text-yellow-500 mr-2"></i>To Do
+            </h3>
+            <div id="cards-stardom-todo" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
+              {{range index (index . "stardom") "todo"}}
+                {{template "card_fragment.html" .}}
+              {{end}}
+            </div>
+          </div>
+
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
+              <i class="bi bi-arrow-repeat text-blue-500 mr-2"></i>In Progress
+            </h3>
+            <div id="cards-stardom-inprogress" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
+              {{range index (index . "stardom") "inprogress"}}
+                {{template "card_fragment.html" .}}
+              {{end}}
+            </div>
+          </div>
+
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
+              <i class="bi bi-chat-left-dots text-purple-500 mr-2"></i>Needs Feedback
+            </h3>
+            <div id="cards-stardom-needsfeedback" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
+              {{range index (index . "stardom") "needsfeedback"}}
+                {{template "card_fragment.html" .}}
+              {{end}}
+            </div>
+          </div>
+
+          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
+            <div class="flex items-center justify-between mb-4 border-b border-gray-200 dark:border-gray-600 pb-2">
+              <h3 class="text-xl font-bold text-gray-700 dark:text-gray-300">
+                <i class="bi bi-check-circle text-green-500 mr-2"></i>Done
+              </h3>
+              <button
+                type="button"
+                onclick="clearDoneColumn('stardom')"
+                title="Clear Done"
+                class="text-red-500 hover:text-red-700 transition-colors duration-200"
+              >
+                <i class="bi bi-trash text-lg"></i>
+              </button>
+            </div>
+            <div id="cards-stardom-done" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
+              {{range index (index . "stardom") "done"}}
+                {{template "card_fragment.html" .}}
+              {{end}}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- Add Card Modal -->
+<div class="modal" id="addCardModal">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form id="addCardForm" hx-post="/card" hx-target="#cards-work-todo" hx-swap="beforeend" onsubmit="return prepareSubtasks(this)">
+        <div class="p-6 border-b border-gray-200 dark:border-gray-600">
+          <div class="flex justify-between items-center">
+            <h5 class="text-xl font-bold text-gray-900 dark:text-white">Add New Card</h5>
+            <button type="button" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" onclick="hideModal('addCardModal')">
+              <i class="bi bi-x text-2xl"></i>
+            </button>
+          </div>
+        </div>
+        <div class="p-6">
+          <input type="hidden" name="status" value="todo">
+
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Board</label>
+            <select name="category" id="addCardCategory" onchange="updateAddCardTarget()" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+              <option value="work" selected>Work</option>
+              <option value="personal">Personal</option>
+              <option value="stardom">Stardom</option>
+            </select>
+          </div>
+
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Title</label>
+            <input type="text" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white" name="title" placeholder="Card Title" required>
+          </div>
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Description</label>
+            <textarea class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white" name="description" placeholder="Description" rows="3"></textarea>
+          </div>
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Subtasks</label>
+            <div class="subtasks-container space-y-2"></div>
+            <button type="button" class="mt-2 bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm add-subtask-btn">
+              <i class="bi bi-plus mr-1"></i>Add Subtask
+            </button>
+            <input type="hidden" name="subtasks" class="subtasks-hidden">
+          </div>
+        </div>
+        <div class="p-6 border-t border-gray-200 dark:border-gray-600 flex justify-end space-x-3">
+          <button type="button" class="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 rounded-lg" onclick="hideModal('addCardModal')">Cancel</button>
+          <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg">Add Card</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Card Modal -->
+<div class="modal" id="editCardModal">
+  <div class="modal-dialog">
+    <div class="modal-content" id="editCardModalContent">
+      <!-- Edit form will be loaded here via HTMX -->
+    </div>
+  </div>
+</div>
+
+<script>
+  const rowTitles = {
+    work: 'Work',
+    personal: 'Personal',
+    stardom: 'Stardom'
+  };
+
+  function initDarkMode() {
+    const darkModeToggle = document.getElementById('darkModeToggle');
+    const html = document.documentElement;
+
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      html.classList.add('dark');
+    }
+
+    darkModeToggle.addEventListener('click', () => {
+      html.classList.toggle('dark');
+      localStorage.setItem('theme', html.classList.contains('dark') ? 'dark' : 'light');
+    });
+  }
+
+  function showModal(modalId) {
+    document.getElementById(modalId).classList.add('show');
+  }
+
+  function hideModal(modalId) {
+    document.getElementById(modalId).classList.remove('show');
+  }
+
+  function updateAddCardTarget() {
+    const form = document.getElementById('addCardForm');
+    const category = document.getElementById('addCardCategory').value;
+    form.setAttribute('hx-target', '#cards-' + category + '-todo');
+  }
+
+  function toggleBoardRow(category) {
+    const row = document.getElementById('row-' + category);
+    const icon = document.getElementById('toggle-icon-' + category);
+
+    row.classList.toggle('hidden');
+
+    if (row.classList.contains('hidden')) {
+      icon.classList.remove('bi-chevron-down');
+      icon.classList.add('bi-chevron-right');
+    } else {
+      icon.classList.remove('bi-chevron-right');
+      icon.classList.add('bi-chevron-down');
+    }
+  }
+
+  function editRowTitle(category) {
+    const current = rowTitles[category] || category;
+    const updated = prompt('Rename row:', current);
+    if (!updated) {
+      return;
+    }
+
+    rowTitles[category] = updated.trim() || current;
+
+    const headers = document.querySelectorAll('[onclick="editRowTitle(\'' + category + '\')"]');
+    headers.forEach(function(btn) {
+      const title = btn.parentElement.querySelector('h2');
+      if (title) {
+        title.textContent = rowTitles[category];
+      }
+    });
+  }
+
+  function clearDoneColumn(category) {
+    if (!confirm('Delete all cards in Done for ' + (rowTitles[category] || category) + '?')) {
+      return;
+    }
+
+    const doneContainer = document.getElementById('cards-' + category + '-done');
+    const doneCardIds = Array.from(doneContainer.children)
+      .map(child => child.getAttribute('data-id'))
+      .filter(id => id !== null)
+      .map(Number);
+
+    Promise.all(doneCardIds.map(function(cardId) {
+      return fetch('/card/' + cardId + '/delete', {
+        method: 'POST'
+      });
+    })).then(function() {
+      doneContainer.innerHTML = '';
+    });
+  }
+
+  document.addEventListener('click', function(e) {
+    if (e.target.classList.contains('modal')) {
+      e.target.classList.remove('show');
+    }
+  });
+
+  [
+    'cards-work-tomorrow',
+    'cards-work-todo',
+    'cards-work-inprogress',
+    'cards-work-needsfeedback',
+    'cards-work-done',
+    'cards-personal-tomorrow',
+    'cards-personal-todo',
+    'cards-personal-inprogress',
+    'cards-personal-needsfeedback',
+    'cards-personal-done',
+    'cards-stardom-tomorrow',
+    'cards-stardom-todo',
+    'cards-stardom-inprogress',
+    'cards-stardom-needsfeedback',
+    'cards-stardom-done'
+  ].forEach(function(id) {
+    var container = document.getElementById(id);
+    if (container) {
+      new Sortable(container, {
+        group: id.split('-')[1],
+        animation: 150,
+        onEnd: function(evt) {
+          let destContainer = evt.to;
+          let parts = destContainer.id.replace('cards-', '').split('-');
+          let destCategory = parts[0];
+          let destStatus = parts.slice(1).join('-');
+
+          let destCardIds = Array.from(destContainer.children)
+            .map(child => child.getAttribute('data-id'))
+            .filter(id => id !== null);
+
+          fetch('/card/order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              category: destCategory,
+              status: destStatus,
+              order: destCardIds.map(Number)
+            })
+          });
+
+          if (evt.from !== evt.to) {
+            let originContainer = evt.from;
+            let originParts = originContainer.id.replace('cards-', '').split('-');
+            let originCategory = originParts[0];
+            let originStatus = originParts.slice(1).join('-');
+
+            let originCardIds = Array.from(originContainer.children)
+              .map(child => child.getAttribute('data-id'))
+              .filter(id => id !== null);
+
+            fetch('/card/order', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                category: originCategory,
+                status: originStatus,
+                order: originCardIds.map(Number)
+              })
+            });
+          }
+        }
+      });
+    }
+  });
+
+  function initSubtasks(container) {
+    container.addEventListener('click', function(e) {
+      let btn = e.target.closest('.remove-subtask-btn');
+      if (btn && container.contains(btn)) {
+        btn.closest('.subtask-row').remove();
+      }
+    });
+    const form = container.closest('form');
+    if (form) {
+      form.querySelectorAll('.add-subtask-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          const row = document.createElement('div');
+          row.className = 'subtask-row flex items-center space-x-2 mb-2';
+          row.innerHTML = `
+            <input type="checkbox" class="subtask-complete w-4 h-4 text-blue-600 rounded focus:ring-blue-500">
+            <input type="text" class="subtask-text flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" placeholder="Subtask description">
+            <button type="button" class="remove-subtask-btn text-red-500 hover:text-red-700 p-1" title="Remove">
+              <i class="bi bi-x text-lg"></i>
+            </button>
+          `;
+          container.appendChild(row);
+        });
+      });
+    }
+  }
+
+  function prepareSubtasks(form) {
+    const container = form.querySelector('.subtasks-container');
+    const hidden = form.querySelector('.subtasks-hidden');
+    let subtasks = [];
+    container.querySelectorAll('.subtask-row').forEach(function(row) {
+      const complete = row.querySelector('.subtask-complete').checked ? '1' : '0';
+      const text = row.querySelector('.subtask-text').value.trim();
+      if (text !== '') {
+        subtasks.push(complete + '|' + text);
+      }
+    });
+    hidden.value = subtasks.join('\n');
+    return true;
+  }
+
+  document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.id && evt.detail.target.id.startsWith('cards-')) {
+      hideModal('addCardModal');
+      var form = document.getElementById('addCardForm');
+      if (form) {
+        form.reset();
+        document.getElementById('addCardCategory').value = 'work';
+        updateAddCardTarget();
+        const container = form.querySelector('.subtasks-container');
+        if (container) {
+          container.innerHTML = '';
+        }
+      }
+    }
+
+    if (evt.detail.target.id === 'editCardModalContent') {
+      showModal('editCardModal');
+      var container = document.getElementById('editCardModalContent').querySelector('.subtasks-container');
+      if (container) {
+        initSubtasks(container);
+      }
+    }
+
+    if (evt.detail.target && evt.detail.target.id && evt.detail.target.id.startsWith('card-')) {
+      hideModal('editCardModal');
+    }
+  });
+
+  document.addEventListener('DOMContentLoaded', function() {
+    initDarkMode();
+    updateAddCardTarget();
+
+    var addForm = document.getElementById('addCardForm');
+    if (addForm) {
+      var container = addForm.querySelector('.subtasks-container');
+      if (container) {
+        initSubtasks(container);
+      }
+    }
+  });
+</script>
+</body>
+</html>
