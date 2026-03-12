@@ -1,104 +1,78 @@
 {{define "card_edit_fragment.html"}}
-<div
-  class="bg-slate-600/70 dark:bg-slate-600/70 rounded-xl shadow-md p-5"
-  id="card-{{.ID}}"
-  data-id="{{.ID}}"
-  data-card-id="{{.ID}}"
+<form
+  hx-post="/card/{{.ID}}/update"
+  hx-target="#card-{{.ID}}"
+  hx-swap="outerHTML"
+  onsubmit="return prepareSubtasks(this)"
 >
-  <!-- Header: title + minimize/maximize button (subtask cards only) -->
-  <div class="flex items-start justify-between gap-3 mb-1">
-    <h4 class="text-white text-2xl font-semibold leading-tight break-words flex-1">{{.Title}}</h4>
+  <div class="p-6 border-b border-gray-200 dark:border-gray-600">
+    <div class="flex justify-between items-center">
+      <h5 class="text-xl font-bold text-gray-900 dark:text-white">Edit Card</h5>
+      <button type="button" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" onclick="hideModal('editCardModal')">
+        <i class="bi bi-x text-2xl"></i>
+      </button>
+    </div>
+  </div>
 
-    {{if hasSubtasks .Subtasks}}
-    <button
-      type="button"
-      class="text-gray-400 hover:text-white transition-colors duration-150 shrink-0 pt-1"
-      aria-label="Toggle card"
-      title="Minimize / Maximize"
-      onclick="(function(btn){
-        const card = btn.closest('[data-card-id]');
-        if (!card) return;
-        const body = card.querySelector('.card-body');
-        const icon = btn.querySelector('i');
-        if (!body || !icon) return;
-        body.classList.toggle('hidden');
-        if (body.classList.contains('hidden')) {
-          icon.classList.remove('bi-dash-square');
-          icon.classList.add('bi-plus-square');
-        } else {
-          icon.classList.remove('bi-plus-square');
-          icon.classList.add('bi-dash-square');
-        }
-      })(this)"
-    >
-      <i class="bi bi-dash-square text-lg"></i>
+  <div class="p-6">
+    <div class="mb-4">
+      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Title</label>
+      <input
+        type="text"
+        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+        name="title"
+        placeholder="Card Title"
+        value="{{.Title}}"
+        required
+      >
+    </div>
+
+    <div class="mb-4">
+      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Description</label>
+      <textarea
+        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+        name="description"
+        placeholder="Description"
+        rows="3"
+      >{{.Description}}</textarea>
+    </div>
+
+    <div class="mb-4">
+      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Subtasks</label>
+      <div class="subtasks-container space-y-2">
+        {{range $subtask := parseSubtasks .Subtasks}}
+        <div class="subtask-row flex items-center space-x-2 mb-2">
+          <input
+            type="checkbox"
+            class="subtask-complete w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+            {{if $subtask.Completed}}checked{{end}}
+          >
+          <input
+            type="text"
+            class="subtask-text flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+            placeholder="Subtask description"
+            value="{{$subtask.Text}}"
+          >
+          <button type="button" class="remove-subtask-btn text-red-500 hover:text-red-700 p-1" title="Remove">
+            <i class="bi bi-x text-lg"></i>
+          </button>
+        </div>
+        {{end}}
+      </div>
+      <button type="button" class="mt-2 bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm add-subtask-btn">
+        <i class="bi bi-plus mr-1"></i>Add Subtask
+      </button>
+      <input type="hidden" name="subtasks" class="subtasks-hidden">
+    </div>
+  </div>
+
+  <div class="p-6 border-t border-gray-200 dark:border-gray-600 flex justify-end space-x-3">
+    <button type="button" class="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 rounded-lg" onclick="hideModal('editCardModal')">
+      Cancel
     </button>
-    {{end}}
+    <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg">
+      Save
+    </button>
   </div>
-
-  <!-- Card body: description + subtasks (hidden when minimized) -->
-  <div class="card-body">
-    {{if .Description}}
-    <div class="mt-3 text-gray-200 text-sm whitespace-pre-line">{{.Description}}</div>
-    {{end}}
-
-    {{if hasSubtasks .Subtasks}}
-    <div class="mt-3 space-y-2">
-      {{range $subtask := parseSubtasks .Subtasks}}
-      <div class="flex items-start gap-2 text-gray-200">
-        {{if $subtask.Completed}}
-        <i class="bi bi-check-square text-sm mt-0.5 text-gray-300"></i>
-        <span class="text-sm line-through text-gray-400">{{$subtask.Text}}</span>
-        {{else}}
-        <i class="bi bi-square text-sm mt-0.5 text-gray-300"></i>
-        <span class="text-sm">{{$subtask.Text}}</span>
-        {{end}}
-      </div>
-      {{end}}
-    </div>
-    {{end}}
-  </div>
-
-  <!-- Bottom bar: always visible -->
-  <div class="border-t border-slate-500/70 mt-4 pt-4">
-    <div class="grid grid-cols-3 items-center">
-      <div class="justify-self-start">
-        <button
-          class="text-blue-500 hover:text-blue-400 transition-colors duration-150"
-          hx-get="/card/{{.ID}}/edit"
-          hx-target="#editCardModalContent"
-          hx-swap="innerHTML"
-          title="Edit card"
-          aria-label="Edit card"
-        >
-          <i class="bi bi-pencil text-lg"></i>
-        </button>
-      </div>
-
-      <div class="justify-self-center">
-        {{if hasSubtasks .Subtasks}}
-          {{if allSubtasksComplete .Subtasks}}
-          <i class="bi bi-check-square-fill text-green-400 text-xl" title="All subtasks complete" aria-label="All subtasks complete"></i>
-          {{else}}
-          <i class="bi bi-square text-gray-300 text-xl" title="Subtasks incomplete" aria-label="Subtasks incomplete"></i>
-          {{end}}
-        {{end}}
-      </div>
-
-      <div class="justify-self-end">
-        <button
-          class="text-red-500 hover:text-red-400 transition-colors duration-150"
-          hx-post="/card/{{.ID}}/delete"
-          hx-target="#card-{{.ID}}"
-          hx-swap="outerHTML"
-          hx-confirm="Delete this card?"
-          title="Delete card"
-          aria-label="Delete card"
-        >
-          <i class="bi bi-trash text-lg"></i>
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
+</form>
 {{end}}
