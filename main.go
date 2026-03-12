@@ -19,11 +19,24 @@ const (
 	StatusInProgress    = "inprogress"
 	StatusNeedsFeedback = "needsfeedback"
 	StatusDone          = "done"
+
+	CategoryWork     = "work"
+	CategoryPersonal = "personal"
+	CategoryStardom  = "stardom"
 )
 
 func isValidStatus(status string) bool {
 	switch status {
 	case StatusTomorrow, StatusTodo, StatusInProgress, StatusNeedsFeedback, StatusDone:
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidCategory(category string) bool {
+	switch category {
+	case CategoryWork, CategoryPersonal, CategoryStardom:
 		return true
 	default:
 		return false
@@ -40,12 +53,15 @@ type Card struct {
 	CardOrder   int
 }
 
+type BoardData map[string]map[string][]Card
+
 var db *sql.DB
 var tmpl *template.Template
 
 type OrderUpdatePayload struct {
-	Status string `json:"status"`
-	Order  []int  `json:"order"`
+	Category string `json:"category"`
+	Status   string `json:"status"`
+	Order    []int  `json:"order"`
 }
 
 func main() {
@@ -106,10 +122,36 @@ func getEnv(key, def string) string {
 	return v
 }
 
+func newBoardData() BoardData {
+	return BoardData{
+		CategoryWork: {
+			StatusTomorrow:      {},
+			StatusTodo:          {},
+			StatusInProgress:    {},
+			StatusNeedsFeedback: {},
+			StatusDone:          {},
+		},
+		CategoryPersonal: {
+			StatusTomorrow:      {},
+			StatusTodo:          {},
+			StatusInProgress:    {},
+			StatusNeedsFeedback: {},
+			StatusDone:          {},
+		},
+		CategoryStardom: {
+			StatusTomorrow:      {},
+			StatusTodo:          {},
+			StatusInProgress:    {},
+			StatusNeedsFeedback: {},
+			StatusDone:          {},
+		},
+	}
+}
+
 func getCardByID(id int) (*Card, error) {
 	var card Card
 	err := db.QueryRow("SELECT id, title, description, subtasks, status, category, card_order FROM cards WHERE id=$1", id).
-        Scan(&card.ID, &card.Title, &card.Description, &card.Subtasks, &card.Status, &card.Category, &card.CardOrder)
+		Scan(&card.ID, &card.Title, &card.Description, &card.Subtasks, &card.Status, &card.Category, &card.CardOrder)
 	if err != nil {
 		return nil, err
 	}
@@ -122,15 +164,28 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cardsByStatus := map[string][]Card{
-		StatusTomorrow:      {},
-		StatusTodo:          {},
-		StatusInProgress:    {},
-		StatusNeedsFeedback: {},
-		StatusDone:          {},
-	}
+	boardData := newBoardData()
 
-	rows, err := db.Query("SELECT id, title, description, subtasks, status, card_order FROM cards ORDER BY status, card_order")
+	rows, err := db.Query(`
+		SELECT id, title, description, subtasks, status, category, card_order
+		FROM cards
+		ORDER BY
+			CASE category
+				WHEN 'work' THEN 1
+				WHEN 'personal' THEN 2
+				WHEN 'stardom' THEN 3
+				ELSE 99
+			END,
+			CASE status
+				WHEN 'tomorrow' THEN 1
+				WHEN 'todo' THEN 2
+				WHEN 'inprogress' THEN 3
+				WHEN 'needsfeedback' THEN 4
+				WHEN 'done' THEN 5
+				ELSE 99
+			END,
+			card_order
+	`)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -143,13 +198,18 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var c Card
-		if err := rows.Scan(&c.ID, &c.Title, &c.Description, &c.Subtasks, &c.Status, &c.CardOrder); err != nil {
+		if err := rows.Scan(&c.ID, &c.Title, &c.Description, &c.Subtasks, &c.Status, &c.Category, &c.CardOrder); err != nil {
 			continue
 		}
-		cardsByStatus[c.Status] = append(cardsByStatus[c.Status], c)
+
+		if !isValidCategory(c.Category) || !isValidStatus(c.Status) {
+			continue
+		}
+
+		boardData[c.Category][c.Status] = append(boardData[c.Category][c.Status], c)
 	}
 
-	if err := tmpl.ExecuteTemplate(w, "index.html", cardsByStatus); err != nil {
+	if err := tmpl.ExecuteTemplate(w, "index.html", boardData); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -164,9 +224,13 @@ func createCardHandler(w http.ResponseWriter, r *http.Request) {
 	description := r.FormValue("description")
 	subtasks := r.FormValue("subtasks")
 	status := r.FormValue("status")
+	category := r.FormValue("category")
 
 	if !isValidStatus(status) {
 		status = StatusTodo
+	}
+	if !isValidCategory(category) {
+		category = CategoryWork
 	}
 
 	if strings.TrimSpace(title) == "" && strings.TrimSpace(description) == "" && strings.TrimSpace(subtasks) == "" {
@@ -175,7 +239,10 @@ func createCardHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var maxOrder int
-	err := db.QueryRow("SELECT COALESCE(MAX(card_order), 0) FROM cards WHERE status=$1", status).Scan(&maxOrder)
+	err := db.QueryRow(
+		"SELECT COALESCE(MAX(card_order), 0) FROM cards WHERE category=$1 AND status=$2",
+		category, status,
+	).Scan(&maxOrder)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -184,8 +251,8 @@ func createCardHandler(w http.ResponseWriter, r *http.Request) {
 
 	var newID int
 	err = db.QueryRow(
-		"INSERT INTO cards (title, description, subtasks, status, card_order) VALUES ($1, $2, $3, $4, $5) RETURNING id",
-		title, description, subtasks, status, maxOrder,
+		"INSERT INTO cards (title, description, subtasks, status, category, card_order) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+		title, description, subtasks, status, category, maxOrder,
 	).Scan(&newID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -198,6 +265,7 @@ func createCardHandler(w http.ResponseWriter, r *http.Request) {
 		Description: description,
 		Subtasks:    subtasks,
 		Status:      status,
+		Category:    category,
 		CardOrder:   maxOrder,
 	}
 
@@ -248,8 +316,14 @@ func moveCardHandler(w http.ResponseWriter, r *http.Request, id int) {
 	}
 
 	newStatus := r.FormValue("status")
+	newCategory := r.FormValue("category")
+
 	if !isValidStatus(newStatus) {
 		http.Error(w, "Invalid status", http.StatusBadRequest)
+		return
+	}
+	if !isValidCategory(newCategory) {
+		http.Error(w, "Invalid category", http.StatusBadRequest)
 		return
 	}
 
@@ -259,7 +333,7 @@ func moveCardHandler(w http.ResponseWriter, r *http.Request, id int) {
 		return
 	}
 
-	_, err = db.Exec("UPDATE cards SET status=$1, card_order=$2 WHERE id=$3", newStatus, newOrder, id)
+	_, err = db.Exec("UPDATE cards SET category=$1, status=$2, card_order=$3 WHERE id=$4", newCategory, newStatus, newOrder, id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -269,13 +343,13 @@ func moveCardHandler(w http.ResponseWriter, r *http.Request, id int) {
 		WITH OrderedCards AS (
 			SELECT id, ROW_NUMBER() OVER (ORDER BY card_order, id) AS new_order
 			FROM cards
-			WHERE status = $1
+			WHERE category = $1 AND status = $2
 		)
 		UPDATE cards
 		SET card_order = OrderedCards.new_order
 		FROM OrderedCards
 		WHERE cards.id = OrderedCards.id;
-	`, newStatus)
+	`, newCategory, newStatus)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -377,17 +451,40 @@ func updateOrderHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !isValidCategory(payload.Category) {
+		http.Error(w, "Invalid category", http.StatusBadRequest)
+		return
+	}
 	if !isValidStatus(payload.Status) {
 		http.Error(w, "Invalid status", http.StatusBadRequest)
 		return
 	}
 
-	for index, cardId := range payload.Order {
-		_, err := db.Exec("UPDATE cards SET status=$1, card_order=$2 WHERE id=$3", payload.Status, index+1, cardId)
+	for index, cardID := range payload.Order {
+		_, err := db.Exec(
+			"UPDATE cards SET category=$1, status=$2, card_order=$3 WHERE id=$4",
+			payload.Category, payload.Status, index+1, cardID,
+		)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+	}
+
+	_, err = db.Exec(`
+		WITH OrderedCards AS (
+			SELECT id, ROW_NUMBER() OVER (ORDER BY card_order, id) AS new_order
+			FROM cards
+			WHERE category = $1 AND status = $2
+		)
+		UPDATE cards
+		SET card_order = OrderedCards.new_order
+		FROM OrderedCards
+		WHERE cards.id = OrderedCards.id;
+	`, payload.Category, payload.Status)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	if _, err := w.Write([]byte("OK")); err != nil {
