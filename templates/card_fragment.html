@@ -1,86 +1,38 @@
 {{define "card_fragment.html"}}
-<div class="card task-card shadow-sm border-0 mb-3" id="card-{{.ID}}" data-card-id="{{.ID}}">
-  <div class="card-body">
-    <div class="d-flex justify-content-between align-items-start gap-2">
-      <h5 class="card-title mb-0">{{.Title}}</h5>
-
-      {{if hasSubtasks .Subtasks}}
-      <button
-        type="button"
-        class="btn btn-sm p-0 border-0 bg-transparent text-body-secondary"
-        aria-label="Toggle subtasks"
-        title="Toggle subtasks"
-        onclick="(function(btn){
-          const card = btn.closest('.task-card');
-          const subtasks = card.querySelector('.subtasks-section');
-          const icon = btn.querySelector('i');
-          if (!subtasks || !icon) return;
-          subtasks.classList.toggle('d-none');
-          icon.classList.toggle('bi-chevron-right');
-          icon.classList.toggle('bi-chevron-down');
-        })(this)">
-        <i class="bi bi-chevron-right"></i>
-      </button>
+<div class="bg-white dark:bg-gray-700 rounded-lg p-4 shadow-md border border-gray-200 dark:border-gray-600 cursor-move hover:shadow-lg transition-all duration-200 transform hover:scale-[1.02]" id="card-{{.ID}}" data-id="{{.ID}}">
+  <h5 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">{{.Title}}</h5>
+  {{if .Description}}
+    <p class="text-gray-600 dark:text-gray-300 text-sm mb-3 whitespace-pre-wrap">{{.Description}}</p>
+  {{end}}
+  {{if .Subtasks}}
+    <ul class="space-y-1 mb-3">
+      {{range $line := split .Subtasks "\n"}}
+        {{$line = trim $line}}
+        {{if $line}}
+          {{$parts := split $line "|"}}
+          <li class="flex items-center text-sm">
+            <i class="bi bi-check-square{{if eq (index $parts 0) "1"}}-fill text-green-500{{else}} text-gray-400{{end}} mr-2"></i>
+            <span class="{{if eq (index $parts 0) "1"}}line-through text-gray-500{{else}}text-gray-700 dark:text-gray-300{{end}}">{{index $parts 1}}</span>
+          </li>
+        {{end}}
       {{end}}
-    </div>
-
-    {{if .Description}}
-    <p class="card-text mt-3 mb-2">{{.Description}}</p>
-    {{end}}
-
-    {{if hasSubtasks .Subtasks}}
-    <div class="subtasks-section d-none mt-2">
-      <ul class="list-unstyled mb-3">
-        {{range $subtask := parseSubtasks .Subtasks}}
-        <li class="d-flex align-items-start gap-2 mb-1">
-          {{if $subtask.Completed}}
-          <i class="bi bi-check-square text-success mt-1"></i>
-          {{else}}
-          <i class="bi bi-square text-secondary mt-1"></i>
-          {{end}}
-          <span{{if $subtask.Completed}} class="text-decoration-line-through text-body-secondary"{{end}}>{{$subtask.Text}}</span>
-        </li>
-        {{end}}
-      </ul>
-    </div>
-    {{end}}
-
-    <hr>
-
-    <div class="d-flex align-items-center justify-content-between">
-      <button
-        class="btn btn-sm text-primary p-0 border-0 bg-transparent"
-        hx-get="/card/{{.ID}}/edit"
-        hx-target="#card-{{.ID}}"
-        hx-swap="outerHTML"
-        title="Edit card"
-        aria-label="Edit card">
-        <i class="bi bi-pencil"></i>
-      </button>
-
-      <div class="text-center" style="min-width: 1.5rem;">
-        {{if hasSubtasks .Subtasks}}
-          {{if allSubtasksComplete .Subtasks}}
-          <i class="bi bi-check-square text-success" title="All subtasks complete" aria-label="All subtasks complete"></i>
-          {{else}}
-          <i class="bi bi-square text-secondary" title="Subtasks incomplete" aria-label="Subtasks incomplete"></i>
-          {{end}}
-        {{else}}
-          <span>&nbsp;</span>
-        {{end}}
-      </div>
-
-      <button
-        class="btn btn-sm text-danger p-0 border-0 bg-transparent"
-        hx-post="/card/{{.ID}}/delete"
-        hx-target="#card-{{.ID}}"
-        hx-swap="outerHTML"
-        hx-confirm="Delete this card?"
-        title="Delete card"
-        aria-label="Delete card">
-        <i class="bi bi-trash"></i>
-      </button>
-    </div>
+    </ul>
+  {{end}}
+  <div class="flex justify-between items-center pt-2 border-t border-gray-100 dark:border-gray-600">
+    <button class="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 dark:hover:bg-blue-900 rounded-lg transition-colors duration-200"
+      hx-get="/card/{{.ID}}/edit"
+      hx-target="#editCardModalContent"
+      hx-swap="innerHTML"
+      title="Edit">
+      <i class="bi bi-pencil text-sm"></i>
+    </button>
+    <button class="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 dark:hover:bg-red-900 rounded-lg transition-colors duration-200"
+      hx-post="/card/{{.ID}}/delete"
+      hx-target="#card-{{.ID}}"
+      hx-swap="delete"
+      title="Delete">
+      <i class="bi bi-trash text-sm"></i>
+    </button>
   </div>
 </div>
 {{end}}
