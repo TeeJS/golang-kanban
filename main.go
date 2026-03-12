@@ -25,6 +25,32 @@ const (
 	CategoryStardom  = "stardom"
 )
 
+type Card struct {
+	ID          int
+	Title       string
+	Description string
+	Subtasks    string
+	Status      string
+	Category    string
+	CardOrder   int
+}
+
+type Subtask struct {
+	Completed bool
+	Text      string
+}
+
+type BoardData map[string]map[string][]Card
+
+type OrderUpdatePayload struct {
+	Category string `json:"category"`
+	Status   string `json:"status"`
+	Order    []int  `json:"order"`
+}
+
+var db *sql.DB
+var tmpl *template.Template
+
 func isValidStatus(status string) bool {
 	switch status {
 	case StatusTomorrow, StatusTodo, StatusInProgress, StatusNeedsFeedback, StatusDone:
@@ -43,25 +69,74 @@ func isValidCategory(category string) bool {
 	}
 }
 
-type Card struct {
-	ID          int
-	Title       string
-	Description string
-	Subtasks    string
-	Status      string
-	Category    string
-	CardOrder   int
+func parseSubtasks(raw string) []Subtask {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+
+	lines := strings.Split(raw, "\n")
+	subtasks := make([]Subtask, 0, len(lines))
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		parts := strings.SplitN(line, "|", 2)
+
+		completed := false
+		text := line
+
+		if len(parts) == 2 {
+			completed = isCompletedValue(parts[0])
+			text = strings.TrimSpace(parts[1])
+		}
+
+		if text == "" {
+			continue
+		}
+
+		subtasks = append(subtasks, Subtask{
+			Completed: completed,
+			Text:      text,
+		})
+	}
+
+	if len(subtasks) == 0 {
+		return nil
+	}
+
+	return subtasks
 }
 
-type BoardData map[string]map[string][]Card
+func isCompletedValue(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "y", "checked", "done", "complete", "completed", "x":
+		return true
+	default:
+		return false
+	}
+}
 
-var db *sql.DB
-var tmpl *template.Template
+func hasSubtasks(raw string) bool {
+	return len(parseSubtasks(raw)) > 0
+}
 
-type OrderUpdatePayload struct {
-	Category string `json:"category"`
-	Status   string `json:"status"`
-	Order    []int  `json:"order"`
+func allSubtasksComplete(raw string) bool {
+	subtasks := parseSubtasks(raw)
+	if len(subtasks) == 0 {
+		return false
+	}
+
+	for _, subtask := range subtasks {
+		if !subtask.Completed {
+			return false
+		}
+	}
+
+	return true
 }
 
 func main() {
@@ -96,7 +171,10 @@ func main() {
 			}
 			return strings.Split(s, sep)
 		},
-		"trim": strings.TrimSpace,
+		"trim":                strings.TrimSpace,
+		"parseSubtasks":       parseSubtasks,
+		"hasSubtasks":         hasSubtasks,
+		"allSubtasksComplete": allSubtasksComplete,
 	}
 
 	tmpl = template.Must(template.New("").Funcs(funcMap).ParseGlob("templates/*.html"))
@@ -104,6 +182,7 @@ func main() {
 	http.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
+
 	http.HandleFunc("/", indexHandler)
 	http.HandleFunc("/card", createCardHandler)
 	http.HandleFunc("/card/", cardRouter)
@@ -150,11 +229,15 @@ func newBoardData() BoardData {
 
 func getCardByID(id int) (*Card, error) {
 	var card Card
-	err := db.QueryRow("SELECT id, title, description, subtasks, status, category, card_order FROM cards WHERE id=$1", id).
-		Scan(&card.ID, &card.Title, &card.Description, &card.Subtasks, &card.Status, &card.Category, &card.CardOrder)
+
+	err := db.QueryRow(
+		"SELECT id, title, description, subtasks, status, category, card_order FROM cards WHERE id=$1",
+		id,
+	).Scan(&card.ID, &card.Title, &card.Description, &card.Subtasks, &card.Status, &card.Category, &card.CardOrder)
 	if err != nil {
 		return nil, err
 	}
+
 	return &card, nil
 }
 
@@ -229,6 +312,7 @@ func createCardHandler(w http.ResponseWriter, r *http.Request) {
 	if !isValidStatus(status) {
 		status = StatusTodo
 	}
+
 	if !isValidCategory(category) {
 		category = CategoryWork
 	}
@@ -241,18 +325,25 @@ func createCardHandler(w http.ResponseWriter, r *http.Request) {
 	var maxOrder int
 	err := db.QueryRow(
 		"SELECT COALESCE(MAX(card_order), 0) FROM cards WHERE category=$1 AND status=$2",
-		category, status,
+		category,
+		status,
 	).Scan(&maxOrder)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
 	maxOrder++
 
 	var newID int
 	err = db.QueryRow(
 		"INSERT INTO cards (title, description, subtasks, status, category, card_order) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
-		title, description, subtasks, status, category, maxOrder,
+		title,
+		description,
+		subtasks,
+		status,
+		category,
+		maxOrder,
 	).Scan(&newID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -293,6 +384,7 @@ func cardRouter(w http.ResponseWriter, r *http.Request) {
 	}
 
 	action := parts[3]
+
 	switch action {
 	case "move":
 		moveCardHandler(w, r, id)
@@ -322,6 +414,7 @@ func moveCardHandler(w http.ResponseWriter, r *http.Request, id int) {
 		http.Error(w, "Invalid status", http.StatusBadRequest)
 		return
 	}
+
 	if !isValidCategory(newCategory) {
 		http.Error(w, "Invalid category", http.StatusBadRequest)
 		return
@@ -455,6 +548,7 @@ func updateOrderHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid category", http.StatusBadRequest)
 		return
 	}
+
 	if !isValidStatus(payload.Status) {
 		http.Error(w, "Invalid status", http.StatusBadRequest)
 		return
@@ -463,7 +557,10 @@ func updateOrderHandler(w http.ResponseWriter, r *http.Request) {
 	for index, cardID := range payload.Order {
 		_, err := db.Exec(
 			"UPDATE cards SET category=$1, status=$2, card_order=$3 WHERE id=$4",
-			payload.Category, payload.Status, index+1, cardID,
+			payload.Category,
+			payload.Status,
+			index+1,
+			cardID,
 		)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
