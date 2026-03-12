@@ -1,48 +1,112 @@
-{{define "card_edit_fragment.html"}}
-<div class="p-6 border-b border-gray-200 dark:border-gray-600">
-  <div class="flex justify-between items-center">
-    <h5 class="text-xl font-bold text-gray-900 dark:text-white">Edit Card</h5>
-    <button type="button" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" onclick="hideModal('editCardModal')">
-      <i class="bi bi-x text-2xl"></i>
+{{define "card_fragment.html"}}
+<div
+  class="bg-slate-600/70 dark:bg-slate-600/70 rounded-xl shadow-md px-4 py-5 text-white"
+  id="card-{{.ID}}"
+  data-id="{{.ID}}"
+>
+  <div class="flex items-start justify-between gap-3">
+    <h4 class="text-[17px] font-semibold leading-snug pr-2 break-words">{{.Title}}</h4>
+
+    {{if .Subtasks}}
+    <button
+      type="button"
+      class="shrink-0 text-slate-200 hover:text-white transition-colors"
+      aria-label="Toggle subtasks"
+      title="Toggle subtasks"
+      onclick="(function(){
+        const card = document.getElementById('card-{{.ID}}');
+        const subtasks = document.getElementById('subtasks-{{.ID}}');
+        const icon = document.getElementById('toggle-icon-{{.ID}}');
+        if (!card || !subtasks || !icon) return;
+        subtasks.classList.toggle('hidden');
+        icon.classList.toggle('bi-chevron-right');
+        icon.classList.toggle('bi-chevron-down');
+      })()"
+    >
+      <i id="toggle-icon-{{.ID}}" class="bi bi-chevron-right text-base"></i>
+    </button>
+    {{end}}
+  </div>
+
+  {{if .Description}}
+  <p class="mt-2 text-sm text-slate-100 whitespace-pre-line break-words">{{.Description}}</p>
+  {{end}}
+
+  <div id="subtasks-{{.ID}}" class="{{if .Subtasks}}hidden{{end}} mt-3 space-y-2">
+    {{if .Subtasks}}
+      {{range $line := split .Subtasks "\n"}}
+        {{$line = trim $line}}
+        {{if $line}}
+          {{$parts := split $line "|"}}
+          <div class="flex items-center gap-2 text-sm text-slate-100 subtask-line">
+            {{if eq (index $parts 0) "1"}}
+              <i class="bi bi-check-square text-slate-200" data-subtask-state="complete"></i>
+              <span class="line-through text-slate-300 break-words">{{index $parts 1}}</span>
+            {{else}}
+              <i class="bi bi-square text-slate-200" data-subtask-state="incomplete"></i>
+              <span class="break-words">{{index $parts 1}}</span>
+            {{end}}
+          </div>
+        {{end}}
+      {{end}}
+    {{end}}
+  </div>
+
+  <div class="mt-4 border-t border-slate-400/70 pt-3 grid grid-cols-3 items-center">
+    <button
+      class="justify-self-start text-blue-400 hover:text-blue-300 transition-colors"
+      hx-get="/card/{{.ID}}/edit"
+      hx-target="#editCardModalContent"
+      hx-swap="innerHTML"
+      title="Edit card"
+      aria-label="Edit card"
+    >
+      <i class="bi bi-pencil text-lg"></i>
+    </button>
+
+    <div class="justify-self-center min-h-[24px] flex items-center">
+      {{if .Subtasks}}
+      <i id="subtask-summary-{{.ID}}" class="bi bi-square text-lg text-slate-100" title="Subtasks incomplete" aria-label="Subtasks incomplete"></i>
+      {{end}}
+    </div>
+
+    <button
+      class="justify-self-end text-red-500 hover:text-red-400 transition-colors"
+      hx-post="/card/{{.ID}}/delete"
+      hx-target="#card-{{.ID}}"
+      hx-swap="outerHTML"
+      hx-confirm="Delete this card?"
+      title="Delete card"
+      aria-label="Delete card"
+    >
+      <i class="bi bi-trash text-lg"></i>
     </button>
   </div>
 </div>
-<div class="p-6">
-  <form hx-post="/card/{{.ID}}/update" hx-target="#card-{{.ID}}" hx-swap="outerHTML" onsubmit="return prepareSubtasks(this)">
-    <div class="mb-4">
-      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Title</label>
-      <input type="text" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white" name="title" value="{{.Title}}">
-    </div>
-    <div class="mb-4">
-      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Description</label>
-      <textarea class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white" name="description" rows="3">{{.Description}}</textarea>
-    </div>
-    <div class="mb-4">
-      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Subtasks</label>
-      <div class="subtasks-container space-y-2">
-        {{range $line := split .Subtasks "\n"}}
-          {{$line = trim $line}}
-          {{if $line}}
-            {{$parts := split $line "|"}}
-            <div class="subtask-row flex items-center space-x-2 mb-2">
-              <input type="checkbox" class="subtask-complete w-4 h-4 text-blue-600 rounded focus:ring-blue-500" {{if eq (index $parts 0) "1"}}checked{{end}}>
-              <input type="text" class="subtask-text flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" value="{{index $parts 1}}">
-              <button type="button" class="remove-subtask-btn text-red-500 hover:text-red-700 p-1" title="Remove">
-                <i class="bi bi-x text-lg"></i>
-              </button>
-            </div>
-          {{end}}
-        {{end}}
-      </div>
-      <button type="button" class="mt-2 bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm add-subtask-btn">
-        <i class="bi bi-plus mr-1"></i>Add Subtask
-      </button>
-      <input type="hidden" name="subtasks" class="subtasks-hidden">
-    </div>
-    <div class="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-gray-600">
-      <button type="button" class="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 rounded-lg" onclick="hideModal('editCardModal')">Cancel</button>
-      <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg">Save</button>
-    </div>
-  </form>
-</div>
+
+{{if .Subtasks}}
+<script>
+(function() {
+  const card = document.getElementById('card-{{.ID}}');
+  const summaryIcon = document.getElementById('subtask-summary-{{.ID}}');
+  if (!card || !summaryIcon) return;
+
+  const states = Array.from(card.querySelectorAll('[data-subtask-state]')).map(function(el) {
+    return el.getAttribute('data-subtask-state');
+  });
+
+  if (states.length > 0 && states.every(function(state) { return state === 'complete'; })) {
+    summaryIcon.classList.remove('bi-square');
+    summaryIcon.classList.add('bi-check-square');
+    summaryIcon.setAttribute('title', 'All subtasks complete');
+    summaryIcon.setAttribute('aria-label', 'All subtasks complete');
+  } else {
+    summaryIcon.classList.remove('bi-check-square');
+    summaryIcon.classList.add('bi-square');
+    summaryIcon.setAttribute('title', 'Subtasks incomplete');
+    summaryIcon.setAttribute('aria-label', 'Subtasks incomplete');
+  }
+})();
+</script>
+{{end}}
 {{end}}
