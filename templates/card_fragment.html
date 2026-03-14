@@ -27,13 +27,13 @@
         }
       })(this)"
     >
-      <i class="bi bi-dash-square text-sm"></i>
+      <i class="bi bi-plus-square text-sm"></i>
     </button>
     {{end}}
   </div>
 
   <!-- Card body: description + subtasks (hidden when minimized) -->
-  <div class="card-body">
+  <div class="card-body{{if hasSubtasks .Subtasks}} hidden{{end}}">
     {{if .Description}}
       <p class="text-gray-600 dark:text-gray-300 text-sm mb-3 whitespace-pre-wrap">{{.Description}}</p>
     {{end}}
