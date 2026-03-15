@@ -656,6 +656,17 @@
     toggleBoardRow('work');
     toggleBoardRow('personal');
     toggleBoardRow('stardom');
+
+    document.querySelectorAll('[aria-label="Toggle card"]').forEach(function(btn) {
+      var card = btn.closest('[data-id]');
+      if (!card) return;
+      var body = card.querySelector('.card-body');
+      var icon = btn.querySelector('i');
+      if (!body || !icon) return;
+      body.classList.add('hidden');
+      icon.classList.remove('bi-dash-square');
+      icon.classList.add('bi-plus-square');
+    });
   });
 </script>
 </body>
