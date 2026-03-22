@@ -303,12 +303,31 @@
     // After a card update (target id starts with "card-"), hide the edit modal.
     if (evt.detail.target && evt.detail.target.id && evt.detail.target.id.startsWith("card-")) {
       hideModal('editCardModal');
+      initCardMinimize();
     }
   });
+
+  // Minimize all cards with subtasks on load.
+  function initCardMinimize() {
+    document.querySelectorAll('[data-id]').forEach(function(card) {
+      var body = card.querySelector('.card-body');
+      if (!body) return;
+      body.classList.add('hidden');
+      var btn = card.querySelector('[aria-label="Toggle card"]');
+      if (btn) {
+        var icon = btn.querySelector('i');
+        if (icon) {
+          icon.classList.remove('bi-dash-square');
+          icon.classList.add('bi-plus-square');
+        }
+      }
+    });
+  }
 
   // Initialize everything on page load.
   document.addEventListener("DOMContentLoaded", function() {
     initDarkMode();
+    initCardMinimize();
     var addForm = document.getElementById('addCardForm');
     if (addForm) {
       var container = addForm.querySelector('.subtasks-container');

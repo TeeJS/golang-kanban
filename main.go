@@ -28,6 +28,11 @@ type Card struct {
 	CardOrder   int
 }
 
+type Subtask struct {
+	Completed bool
+	Text      string
+}
+
 var db *sql.DB
 var tmpl *template.Template
 
@@ -66,7 +71,10 @@ func main() {
 			}
 			return strings.Split(s, sep)
 		},
-		"trim": strings.TrimSpace,
+		"trim":                strings.TrimSpace,
+		"parseSubtasks":       parseSubtasks,
+		"hasSubtasks":         hasSubtasks,
+		"allSubtasksComplete": allSubtasksComplete,
 	}
 	tmpl = template.Must(template.New("").Funcs(funcMap).ParseGlob("templates/*.html"))
 
@@ -82,6 +90,66 @@ func main() {
 	serverPort := getEnv("SERVER_PORT", "17808")
 	log.Println("Server started on :" + serverPort)
 	log.Fatal(http.ListenAndServe(":"+serverPort, nil))
+}
+
+// ---------------------------------------------------------------------------
+// Subtask helpers
+// ---------------------------------------------------------------------------
+
+func parseSubtasks(raw string) []Subtask {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	lines := strings.Split(raw, "\n")
+	subtasks := make([]Subtask, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 2)
+		completed := false
+		text := line
+		if len(parts) == 2 {
+			completed = isCompletedValue(parts[0])
+			text = strings.TrimSpace(parts[1])
+		}
+		if text == "" {
+			continue
+		}
+		subtasks = append(subtasks, Subtask{Completed: completed, Text: text})
+	}
+	if len(subtasks) == 0 {
+		return nil
+	}
+	return subtasks
+}
+
+func isCompletedValue(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "y", "checked", "done", "complete", "completed", "x":
+		return true
+	default:
+		return false
+	}
+}
+
+func hasSubtasks(raw string) bool {
+	return len(parseSubtasks(raw)) > 0
+}
+
+func allSubtasksComplete(raw string) bool {
+	subtasks := parseSubtasks(raw)
+	if len(subtasks) == 0 {
+		return false
+	}
+	for _, s := range subtasks {
+		if !s.Completed {
+			return false
+		}
+	}
+	return true
 }
 
 func getEnv(key, def string) string {
