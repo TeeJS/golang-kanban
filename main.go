@@ -565,6 +565,17 @@ func cardRouter(w http.ResponseWriter, r *http.Request) {
 		deleteCardHandler(w, r, id)
 	case "view":
 		viewCardHandler(w, r, id)
+	case "subtask":
+		if len(parts) < 5 {
+			http.NotFound(w, r)
+			return
+		}
+		index, err := strconv.Atoi(parts[4])
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		toggleSubtaskHandler(w, r, id, index)
 	default:
 		http.NotFound(w, r)
 	}
@@ -692,6 +703,47 @@ func viewCardHandler(w http.ResponseWriter, r *http.Request, id int) {
 		return
 	}
 
+	if err := tmpl.ExecuteTemplate(w, "card_fragment.html", card); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func toggleSubtaskHandler(w http.ResponseWriter, r *http.Request, id int, index int) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	card, err := getCardByID(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	subtasks := parseSubtasks(card.Subtasks)
+	if index < 0 || index >= len(subtasks) {
+		http.Error(w, "Invalid subtask index", http.StatusBadRequest)
+		return
+	}
+
+	subtasks[index].Completed = !subtasks[index].Completed
+
+	lines := make([]string, len(subtasks))
+	for i, s := range subtasks {
+		completed := "0"
+		if s.Completed {
+			completed = "1"
+		}
+		lines[i] = completed + "|" + s.Text
+	}
+
+	newSubtasks := strings.Join(lines, "\n")
+	if _, err := db.Exec(`UPDATE cards SET subtasks=$1 WHERE id=$2`, newSubtasks, id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	card.Subtasks = newSubtasks
 	if err := tmpl.ExecuteTemplate(w, "card_fragment.html", card); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
