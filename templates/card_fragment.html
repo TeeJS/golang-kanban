@@ -40,8 +40,11 @@
 
     {{if hasSubtasks .Subtasks}}
       <ul class="space-y-1 mb-3">
-        {{range $subtask := parseSubtasks .Subtasks}}
-          <li class="flex items-center text-sm">
+        {{range $i, $subtask := parseSubtasks .Subtasks}}
+          <li class="flex items-center text-sm cursor-pointer no-drag"
+            hx-post="/card/{{$.ID}}/subtask/{{$i}}"
+            hx-target="#card-{{$.ID}}"
+            hx-swap="outerHTML">
             {{if $subtask.Completed}}
               <i class="bi bi-check-square-fill text-green-500 mr-2"></i>
               <span class="line-through text-gray-500">{{$subtask.Text}}</span>
