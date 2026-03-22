@@ -35,7 +35,7 @@
   <!-- Card body: description + subtasks (hidden when minimized) -->
   <div class="card-body">
     {{if .Description}}
-      <p class="text-gray-600 dark:text-gray-300 text-sm mb-3 whitespace-pre-wrap">{{.Description}}</p>
+      <p class="text-gray-600 dark:text-gray-300 text-sm mb-3 whitespace-pre-wrap break-words">{{.Description}}</p>
     {{end}}
 
     {{if hasSubtasks .Subtasks}}
