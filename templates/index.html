@@ -1,3 +1,4 @@
+{{define "index.html"}}
 <!DOCTYPE html>
 <html class="h-full">
 <head>
@@ -55,299 +56,26 @@
       <i class="bi bi-plus mr-2"></i>Add New Card
     </button>
 
-    <button
-      id="darkModeToggle"
-      class="absolute right-0 p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors duration-200"
-      title="Toggle dark mode"
-    >
-      <i class="bi bi-sun text-xl dark:hidden"></i>
-      <i class="bi bi-moon text-xl hidden dark:inline"></i>
-    </button>
+    <div class="absolute right-0 flex items-center gap-2">
+      <button
+        onclick="showModal('settingsModal')"
+        class="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors duration-200"
+        title="Board settings"
+      >
+        <i class="bi bi-gear text-xl"></i>
+      </button>
+      <button
+        id="darkModeToggle"
+        class="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors duration-200"
+        title="Toggle dark mode"
+      >
+        <i class="bi bi-sun text-xl dark:hidden"></i>
+        <i class="bi bi-moon text-xl hidden dark:inline"></i>
+      </button>
+    </div>
   </div>
 
-  <div class="max-w-7xl mx-auto space-y-4">
-    <!-- Work -->
-    <section class="bg-gray-200 dark:bg-gray-800/40 rounded-xl shadow-md">
-      <div class="flex items-center justify-between px-4 py-2">
-        <div class="flex items-center gap-2">
-          <button
-            type="button"
-            onclick="toggleBoardRow('work')"
-            class="text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-            title="Toggle Work"
-          >
-            <i id="toggle-icon-work" class="bi bi-chevron-down text-sm"></i>
-          </button>
-          <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-200">Work</h2>
-          <button
-            type="button"
-            onclick="editRowTitle('work')"
-            class="text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors"
-            title="Rename Work"
-          >
-            <i class="bi bi-pencil text-xs"></i>
-          </button>
-        </div>
-      </div>
-
-      <div id="row-work" class="px-2 pb-3">
-        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6">
-          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
-              <i class="bi bi-calendar-day text-orange-500 mr-2"></i>Tomorrow
-            </h3>
-            <div id="cards-work-tomorrow" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
-              {{range index (index . "work") "tomorrow"}}
-                {{template "card_fragment.html" .}}
-              {{end}}
-            </div>
-          </div>
-
-          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
-              <i class="bi bi-clock text-yellow-500 mr-2"></i>To Do
-            </h3>
-            <div id="cards-work-todo" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
-              {{range index (index . "work") "todo"}}
-                {{template "card_fragment.html" .}}
-              {{end}}
-            </div>
-          </div>
-
-          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
-              <i class="bi bi-arrow-repeat text-blue-500 mr-2"></i>In Progress
-            </h3>
-            <div id="cards-work-inprogress" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
-              {{range index (index . "work") "inprogress"}}
-                {{template "card_fragment.html" .}}
-              {{end}}
-            </div>
-          </div>
-
-          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
-              <i class="bi bi-chat-left-dots text-purple-500 mr-2"></i>Needs Feedback
-            </h3>
-            <div id="cards-work-needsfeedback" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
-              {{range index (index . "work") "needsfeedback"}}
-                {{template "card_fragment.html" .}}
-              {{end}}
-            </div>
-          </div>
-
-          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-            <div class="flex items-center justify-between mb-4 border-b border-gray-200 dark:border-gray-600 pb-2">
-              <h3 class="text-xl font-bold text-gray-700 dark:text-gray-300">
-                <i class="bi bi-check-circle text-green-500 mr-2"></i>Done
-              </h3>
-              <button
-                type="button"
-                onclick="clearDoneColumn('work')"
-                title="Clear Done"
-                class="text-red-500 hover:text-red-700 transition-colors duration-200"
-              >
-                <i class="bi bi-trash text-lg"></i>
-              </button>
-            </div>
-            <div id="cards-work-done" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
-              {{range index (index . "work") "done"}}
-                {{template "card_fragment.html" .}}
-              {{end}}
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Personal -->
-    <section class="bg-gray-200 dark:bg-gray-800/40 rounded-xl shadow-md">
-      <div class="flex items-center justify-between px-4 py-2">
-        <div class="flex items-center gap-2">
-          <button
-            type="button"
-            onclick="toggleBoardRow('personal')"
-            class="text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-            title="Toggle Personal"
-          >
-            <i id="toggle-icon-personal" class="bi bi-chevron-down text-sm"></i>
-          </button>
-          <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-200">Personal</h2>
-          <button
-            type="button"
-            onclick="editRowTitle('personal')"
-            class="text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors"
-            title="Rename Personal"
-          >
-            <i class="bi bi-pencil text-xs"></i>
-          </button>
-        </div>
-      </div>
-
-      <div id="row-personal" class="px-2 pb-3">
-        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6">
-          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
-              <i class="bi bi-calendar-day text-orange-500 mr-2"></i>Tomorrow
-            </h3>
-            <div id="cards-personal-tomorrow" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
-              {{range index (index . "personal") "tomorrow"}}
-                {{template "card_fragment.html" .}}
-              {{end}}
-            </div>
-          </div>
-
-          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
-              <i class="bi bi-clock text-yellow-500 mr-2"></i>To Do
-            </h3>
-            <div id="cards-personal-todo" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
-              {{range index (index . "personal") "todo"}}
-                {{template "card_fragment.html" .}}
-              {{end}}
-            </div>
-          </div>
-
-          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
-              <i class="bi bi-arrow-repeat text-blue-500 mr-2"></i>In Progress
-            </h3>
-            <div id="cards-personal-inprogress" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
-              {{range index (index . "personal") "inprogress"}}
-                {{template "card_fragment.html" .}}
-              {{end}}
-            </div>
-          </div>
-
-          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
-              <i class="bi bi-chat-left-dots text-purple-500 mr-2"></i>Needs Feedback
-            </h3>
-            <div id="cards-personal-needsfeedback" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
-              {{range index (index . "personal") "needsfeedback"}}
-                {{template "card_fragment.html" .}}
-              {{end}}
-            </div>
-          </div>
-
-          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-            <div class="flex items-center justify-between mb-4 border-b border-gray-200 dark:border-gray-600 pb-2">
-              <h3 class="text-xl font-bold text-gray-700 dark:text-gray-300">
-                <i class="bi bi-check-circle text-green-500 mr-2"></i>Done
-              </h3>
-              <button
-                type="button"
-                onclick="clearDoneColumn('personal')"
-                title="Clear Done"
-                class="text-red-500 hover:text-red-700 transition-colors duration-200"
-              >
-                <i class="bi bi-trash text-lg"></i>
-              </button>
-            </div>
-            <div id="cards-personal-done" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
-              {{range index (index . "personal") "done"}}
-                {{template "card_fragment.html" .}}
-              {{end}}
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Stardom -->
-    <section class="bg-gray-200 dark:bg-gray-800/40 rounded-xl shadow-md">
-      <div class="flex items-center justify-between px-4 py-2">
-        <div class="flex items-center gap-2">
-          <button
-            type="button"
-            onclick="toggleBoardRow('stardom')"
-            class="text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-            title="Toggle Stardom"
-          >
-            <i id="toggle-icon-stardom" class="bi bi-chevron-down text-sm"></i>
-          </button>
-          <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-200">Stardom</h2>
-          <button
-            type="button"
-            onclick="editRowTitle('stardom')"
-            class="text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors"
-            title="Rename Stardom"
-          >
-            <i class="bi bi-pencil text-xs"></i>
-          </button>
-        </div>
-      </div>
-
-      <div id="row-stardom" class="px-2 pb-3">
-        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6">
-          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
-              <i class="bi bi-calendar-day text-orange-500 mr-2"></i>Tomorrow
-            </h3>
-            <div id="cards-stardom-tomorrow" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
-              {{range index (index . "stardom") "tomorrow"}}
-                {{template "card_fragment.html" .}}
-              {{end}}
-            </div>
-          </div>
-
-          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
-              <i class="bi bi-clock text-yellow-500 mr-2"></i>To Do
-            </h3>
-            <div id="cards-stardom-todo" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
-              {{range index (index . "stardom") "todo"}}
-                {{template "card_fragment.html" .}}
-              {{end}}
-            </div>
-          </div>
-
-          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
-              <i class="bi bi-arrow-repeat text-blue-500 mr-2"></i>In Progress
-            </h3>
-            <div id="cards-stardom-inprogress" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
-              {{range index (index . "stardom") "inprogress"}}
-                {{template "card_fragment.html" .}}
-              {{end}}
-            </div>
-          </div>
-
-          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-            <h3 class="text-xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">
-              <i class="bi bi-chat-left-dots text-purple-500 mr-2"></i>Needs Feedback
-            </h3>
-            <div id="cards-stardom-needsfeedback" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
-              {{range index (index . "stardom") "needsfeedback"}}
-                {{template "card_fragment.html" .}}
-              {{end}}
-            </div>
-          </div>
-
-          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6">
-            <div class="flex items-center justify-between mb-4 border-b border-gray-200 dark:border-gray-600 pb-2">
-              <h3 class="text-xl font-bold text-gray-700 dark:text-gray-300">
-                <i class="bi bi-check-circle text-green-500 mr-2"></i>Done
-              </h3>
-              <button
-                type="button"
-                onclick="clearDoneColumn('stardom')"
-                title="Clear Done"
-                class="text-red-500 hover:text-red-700 transition-colors duration-200"
-              >
-                <i class="bi bi-trash text-lg"></i>
-              </button>
-            </div>
-            <div id="cards-stardom-done" class="space-y-3 min-h-[500px] overflow-y-auto max-h-[70vh] pr-2">
-              {{range index (index . "stardom") "done"}}
-                {{template "card_fragment.html" .}}
-              {{end}}
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  </div>
+  {{template "board_fragment.html" .}}
 </div>
 
 <!-- Add Card Modal -->
@@ -369,9 +97,9 @@
           <div class="mb-4">
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Board</label>
             <select name="category" id="addCardCategory" onchange="updateAddCardTarget()" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
-              <option value="work" selected>Work</option>
-              <option value="personal">Personal</option>
-              <option value="stardom">Stardom</option>
+              {{range .Categories}}
+              <option value="{{.Slug}}">{{.Name}}</option>
+              {{end}}
             </select>
           </div>
 
@@ -410,28 +138,161 @@
   </div>
 </div>
 
+<!-- Settings Modal -->
+<div class="modal" id="settingsModal">
+  <div class="modal-dialog" style="max-width:640px">
+    <div class="modal-content">
+      <div class="p-6 border-b border-gray-200 dark:border-gray-600">
+        <div class="flex justify-between items-center">
+          <h5 class="text-xl font-bold text-gray-900 dark:text-white">Board Settings</h5>
+          <button type="button" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" onclick="hideModal('settingsModal')">
+            <i class="bi bi-x text-2xl"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="p-6 space-y-6">
+
+        <!-- Rows (Categories) -->
+        <div>
+          <h6 class="text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">Rows</h6>
+          <ul id="settings-rows-list" class="space-y-2 mb-3">
+            {{range .Categories}}
+            <li class="flex items-center gap-2 bg-gray-50 dark:bg-gray-700 rounded-lg px-3 py-2" data-slug="{{.Slug}}">
+              {{if not .Locked}}
+              <i class="bi bi-grip-vertical text-gray-400 cursor-grab settings-drag-handle"></i>
+              {{else}}
+              <i class="bi bi-lock text-gray-300 dark:text-gray-500 text-sm"></i>
+              {{end}}
+              <span class="flex-1 text-sm text-gray-800 dark:text-gray-200">{{.Name}}</span>
+              {{if not .Locked}}
+              <button
+                type="button"
+                onclick="promptRenameCategory('{{.Slug}}', '{{.Name}}')"
+                class="text-gray-400 hover:text-blue-600 transition-colors"
+                title="Rename"
+              ><i class="bi bi-pencil text-sm"></i></button>
+              <button
+                type="button"
+                onclick="promptDeleteCategory('{{.Slug}}', '{{.Name}}')"
+                class="text-gray-400 hover:text-red-600 transition-colors"
+                title="Delete"
+              ><i class="bi bi-trash text-sm"></i></button>
+              {{end}}
+            </li>
+            {{end}}
+          </ul>
+          <form onsubmit="submitAddCategory(event)" class="flex gap-2">
+            <input
+              type="text"
+              id="newCategoryName"
+              placeholder="New row name"
+              class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+            <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm">Add</button>
+          </form>
+        </div>
+
+        <hr class="border-gray-200 dark:border-gray-600">
+
+        <!-- Columns (Statuses) -->
+        <div>
+          <h6 class="text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">Columns</h6>
+          <ul id="settings-cols-list" class="space-y-2 mb-3">
+            {{range .Statuses}}
+            <li class="flex items-center gap-2 bg-gray-50 dark:bg-gray-700 rounded-lg px-3 py-2" data-slug="{{.Slug}}">
+              {{if not .Locked}}
+              <i class="bi bi-grip-vertical text-gray-400 cursor-grab settings-drag-handle"></i>
+              {{else}}
+              <i class="bi bi-lock text-gray-300 dark:text-gray-500 text-sm"></i>
+              {{end}}
+              <span class="flex-1 text-sm text-gray-800 dark:text-gray-200">{{.Name}}</span>
+              {{if not .Locked}}
+              <button
+                type="button"
+                onclick="promptRenameStatus('{{.Slug}}', '{{.Name}}')"
+                class="text-gray-400 hover:text-blue-600 transition-colors"
+                title="Rename"
+              ><i class="bi bi-pencil text-sm"></i></button>
+              <button
+                type="button"
+                onclick="promptDeleteStatus('{{.Slug}}', '{{.Name}}')"
+                class="text-gray-400 hover:text-red-600 transition-colors"
+                title="Delete"
+              ><i class="bi bi-trash text-sm"></i></button>
+              {{end}}
+            </li>
+            {{end}}
+          </ul>
+          <form onsubmit="submitAddStatus(event)" class="flex gap-2">
+            <input
+              type="text"
+              id="newStatusName"
+              placeholder="New column name"
+              class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+            <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm">Add</button>
+          </form>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Delete-with-cards confirmation modal -->
+<div class="modal" id="deleteWithCardsModal">
+  <div class="modal-dialog" style="max-width:400px">
+    <div class="modal-content p-6 space-y-4">
+      <h5 class="text-lg font-bold text-gray-900 dark:text-white" id="deleteWithCardsTitle">Move cards before deleting</h5>
+      <p class="text-sm text-gray-600 dark:text-gray-300" id="deleteWithCardsMsg"></p>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Move cards to:</label>
+        <select id="deleteWithCardsMoveTo" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"></select>
+      </div>
+      <div class="flex justify-end gap-3 pt-2">
+        <button type="button" onclick="hideModal('deleteWithCardsModal')" class="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 rounded-lg text-sm">Cancel</button>
+        <button type="button" id="deleteWithCardsConfirm" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm">Move &amp; Delete</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
-  const rowTitles = {
-    work: 'Work',
-    personal: 'Personal',
-    stardom: 'Stardom'
-  };
+  // ---------------------------------------------------------------------------
+  // Board reload helper
+  // ---------------------------------------------------------------------------
+  function reloadBoard() {
+    fetch('/board')
+      .then(function(r) { return r.text(); })
+      .then(function(html) {
+        var boardEl = document.getElementById('board');
+        if (!boardEl) return;
+        boardEl.outerHTML = html;
+        initSortable();
+        initCardMinimize();
+      });
+  }
 
+  // ---------------------------------------------------------------------------
+  // Dark mode
+  // ---------------------------------------------------------------------------
   function initDarkMode() {
-    const darkModeToggle = document.getElementById('darkModeToggle');
-    const html = document.documentElement;
-
-    const savedTheme = localStorage.getItem('theme');
+    var darkModeToggle = document.getElementById('darkModeToggle');
+    var html = document.documentElement;
+    var savedTheme = localStorage.getItem('theme');
     if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
       html.classList.add('dark');
     }
-
-    darkModeToggle.addEventListener('click', () => {
+    darkModeToggle.addEventListener('click', function() {
       html.classList.toggle('dark');
       localStorage.setItem('theme', html.classList.contains('dark') ? 'dark' : 'light');
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // Modals
+  // ---------------------------------------------------------------------------
   function showModal(modalId) {
     document.getElementById(modalId).classList.add('show');
   }
@@ -440,18 +301,30 @@
     document.getElementById(modalId).classList.remove('show');
   }
 
+  document.addEventListener('click', function(e) {
+    if (e.target.classList.contains('modal')) {
+      e.target.classList.remove('show');
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Add card form
+  // ---------------------------------------------------------------------------
   function updateAddCardTarget() {
-    const form = document.getElementById('addCardForm');
-    const category = document.getElementById('addCardCategory').value;
+    var form = document.getElementById('addCardForm');
+    var category = document.getElementById('addCardCategory').value;
     form.setAttribute('hx-target', '#cards-' + category + '-todo');
+    htmx.process(form);
   }
 
+  // ---------------------------------------------------------------------------
+  // Board row toggle
+  // ---------------------------------------------------------------------------
   function toggleBoardRow(category) {
-    const row = document.getElementById('row-' + category);
-    const icon = document.getElementById('toggle-icon-' + category);
-
+    var row = document.getElementById('row-' + category);
+    var icon = document.getElementById('toggle-icon-' + category);
+    if (!row || !icon) return;
     row.classList.toggle('hidden');
-
     if (row.classList.contains('hidden')) {
       icon.classList.remove('bi-chevron-down');
       icon.classList.add('bi-chevron-right');
@@ -461,137 +334,255 @@
     }
   }
 
-  function editRowTitle(category) {
-    const current = rowTitles[category] || category;
-    const updated = prompt('Rename row:', current);
-    if (!updated) {
-      return;
-    }
-
-    rowTitles[category] = updated.trim() || current;
-
-    const headers = document.querySelectorAll('[onclick="editRowTitle(\'' + category + '\')"]');
-    headers.forEach(function(btn) {
-      const title = btn.parentElement.querySelector('h2');
-      if (title) {
-        title.textContent = rowTitles[category];
-      }
-    });
-  }
-
+  // ---------------------------------------------------------------------------
+  // Clear done column
+  // ---------------------------------------------------------------------------
   function clearDoneColumn(category) {
-    if (!confirm('Delete all cards in Done for ' + (rowTitles[category] || category) + '?')) {
-      return;
-    }
-
-    const doneContainer = document.getElementById('cards-' + category + '-done');
-    const doneCardIds = Array.from(doneContainer.children)
-      .map(child => child.getAttribute('data-id'))
-      .filter(id => id !== null)
+    if (!confirm('Delete all cards in Done for this row?')) return;
+    var doneContainer = document.getElementById('cards-' + category + '-done');
+    if (!doneContainer) return;
+    var ids = Array.from(doneContainer.children)
+      .map(function(c) { return c.getAttribute('data-id'); })
+      .filter(function(id) { return id !== null; })
       .map(Number);
 
-    Promise.all(doneCardIds.map(function(cardId) {
-      return fetch('/card/' + cardId + '/delete', {
-        method: 'POST'
-      });
+    Promise.all(ids.map(function(cardId) {
+      return fetch('/card/' + cardId + '/delete', { method: 'POST' });
     })).then(function() {
       doneContainer.innerHTML = '';
     });
   }
 
-  document.addEventListener('click', function(e) {
-    if (e.target.classList.contains('modal')) {
-      e.target.classList.remove('show');
-    }
-  });
-
-  [
-    'cards-work-tomorrow',
-    'cards-work-todo',
-    'cards-work-inprogress',
-    'cards-work-needsfeedback',
-    'cards-work-done',
-    'cards-personal-tomorrow',
-    'cards-personal-todo',
-    'cards-personal-inprogress',
-    'cards-personal-needsfeedback',
-    'cards-personal-done',
-    'cards-stardom-tomorrow',
-    'cards-stardom-todo',
-    'cards-stardom-inprogress',
-    'cards-stardom-needsfeedback',
-    'cards-stardom-done'
-  ].forEach(function(id) {
-    var container = document.getElementById(id);
-    if (container) {
-      new Sortable(container, {
-        group: id.split('-')[1],
+  // ---------------------------------------------------------------------------
+  // SortableJS — card drag-and-drop
+  // ---------------------------------------------------------------------------
+  function initSortable() {
+    document.querySelectorAll('[id^="cards-"]').forEach(function(container) {
+      if (container._sortable) {
+        container._sortable.destroy();
+      }
+      var parts = container.id.replace('cards-', '').split('-');
+      var catSlug = parts[0];
+      container._sortable = new Sortable(container, {
+        group: catSlug,
         animation: 150,
+        handle: null,
         onEnd: function(evt) {
-          let destContainer = evt.to;
-          let parts = destContainer.id.replace('cards-', '').split('-');
-          let destCategory = parts[0];
-          let destStatus = parts.slice(1).join('-');
-
-          let destCardIds = Array.from(destContainer.children)
-            .map(child => child.getAttribute('data-id'))
-            .filter(id => id !== null);
+          var destContainer = evt.to;
+          var destParts = destContainer.id.replace('cards-', '').split('-');
+          var destCategory = destParts[0];
+          var destStatus = destParts.slice(1).join('-');
+          var destIds = Array.from(destContainer.children)
+            .map(function(c) { return c.getAttribute('data-id'); })
+            .filter(function(id) { return id !== null; });
 
           fetch('/card/order', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              category: destCategory,
-              status: destStatus,
-              order: destCardIds.map(Number)
-            })
+            body: JSON.stringify({ category: destCategory, status: destStatus, order: destIds.map(Number) })
           });
 
           if (evt.from !== evt.to) {
-            let originContainer = evt.from;
-            let originParts = originContainer.id.replace('cards-', '').split('-');
-            let originCategory = originParts[0];
-            let originStatus = originParts.slice(1).join('-');
-
-            let originCardIds = Array.from(originContainer.children)
-              .map(child => child.getAttribute('data-id'))
-              .filter(id => id !== null);
+            var originContainer = evt.from;
+            var originParts = originContainer.id.replace('cards-', '').split('-');
+            var originCategory = originParts[0];
+            var originStatus = originParts.slice(1).join('-');
+            var originIds = Array.from(originContainer.children)
+              .map(function(c) { return c.getAttribute('data-id'); })
+              .filter(function(id) { return id !== null; });
 
             fetch('/card/order', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                category: originCategory,
-                status: originStatus,
-                order: originCardIds.map(Number)
-              })
+              body: JSON.stringify({ category: originCategory, status: originStatus, order: originIds.map(Number) })
             });
           }
         }
       });
-    }
-  });
+    });
+  }
 
+  // ---------------------------------------------------------------------------
+  // SortableJS — settings row/column reorder
+  // ---------------------------------------------------------------------------
+  function initSettingsSortable() {
+    var rowsList = document.getElementById('settings-rows-list');
+    if (rowsList && !rowsList._sortable) {
+      rowsList._sortable = new Sortable(rowsList, {
+        handle: '.settings-drag-handle',
+        animation: 150,
+        onEnd: function() {
+          var order = Array.from(rowsList.children).map(function(li) { return li.getAttribute('data-slug'); });
+          fetch('/category/order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ order: order })
+          }).then(function() { reloadBoard(); });
+        }
+      });
+    }
+
+    var colsList = document.getElementById('settings-cols-list');
+    if (colsList && !colsList._sortable) {
+      colsList._sortable = new Sortable(colsList, {
+        handle: '.settings-drag-handle',
+        animation: 150,
+        onEnd: function() {
+          var order = Array.from(colsList.children).map(function(li) { return li.getAttribute('data-slug'); });
+          fetch('/status/order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ order: order })
+          }).then(function() { reloadBoard(); });
+        }
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Settings: add category/status
+  // ---------------------------------------------------------------------------
+  function submitAddCategory(e) {
+    e.preventDefault();
+    var input = document.getElementById('newCategoryName');
+    var name = input.value.trim();
+    if (!name) return;
+    var fd = new FormData();
+    fd.append('name', name);
+    fetch('/category', { method: 'POST', body: fd })
+      .then(function() {
+        input.value = '';
+        location.reload();
+      });
+  }
+
+  function submitAddStatus(e) {
+    e.preventDefault();
+    var input = document.getElementById('newStatusName');
+    var name = input.value.trim();
+    if (!name) return;
+    var fd = new FormData();
+    fd.append('name', name);
+    fetch('/status', { method: 'POST', body: fd })
+      .then(function() {
+        input.value = '';
+        location.reload();
+      });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Settings: rename category/status
+  // ---------------------------------------------------------------------------
+  function promptRenameCategory(slug, currentName) {
+    var name = prompt('Rename row:', currentName);
+    if (!name || !name.trim()) return;
+    var fd = new FormData();
+    fd.append('name', name.trim());
+    fetch('/category/' + slug + '/rename', { method: 'POST', body: fd })
+      .then(function() { location.reload(); });
+  }
+
+  function promptRenameStatus(slug, currentName) {
+    var name = prompt('Rename column:', currentName);
+    if (!name || !name.trim()) return;
+    var fd = new FormData();
+    fd.append('name', name.trim());
+    fetch('/status/' + slug + '/rename', { method: 'POST', body: fd })
+      .then(function() { location.reload(); });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Settings: delete category/status (with card-move prompt)
+  // ---------------------------------------------------------------------------
+  function promptDeleteCategory(slug, name) {
+    var fd = new FormData();
+    fetch('/category/' + slug + '/delete', { method: 'POST', body: fd })
+      .then(function(r) {
+        if (r.ok) { location.reload(); return; }
+        if (r.status === 409) {
+          r.json().then(function(data) {
+            showDeleteWithCardsModal(
+              'Row "' + name + '" has ' + data.count + ' card(s). Move them to another row before deleting.',
+              'category',
+              slug,
+              name
+            );
+          });
+        }
+      });
+  }
+
+  function promptDeleteStatus(slug, name) {
+    var fd = new FormData();
+    fetch('/status/' + slug + '/delete', { method: 'POST', body: fd })
+      .then(function(r) {
+        if (r.ok) { location.reload(); return; }
+        if (r.status === 409) {
+          r.json().then(function(data) {
+            showDeleteWithCardsModal(
+              'Column "' + name + '" has ' + data.count + ' card(s). Move them to another column before deleting.',
+              'status',
+              slug,
+              name
+            );
+          });
+        }
+      });
+  }
+
+  function showDeleteWithCardsModal(msg, type, slug, name) {
+    document.getElementById('deleteWithCardsMsg').textContent = msg;
+    var select = document.getElementById('deleteWithCardsMoveTo');
+    select.innerHTML = '';
+
+    // Populate options from the settings list
+    var listId = type === 'category' ? 'settings-rows-list' : 'settings-cols-list';
+    var list = document.getElementById(listId);
+    list.querySelectorAll('li[data-slug]').forEach(function(li) {
+      var liSlug = li.getAttribute('data-slug');
+      if (liSlug === slug) return;
+      var opt = document.createElement('option');
+      opt.value = liSlug;
+      opt.textContent = li.querySelector('span').textContent;
+      select.appendChild(opt);
+    });
+
+    var confirmBtn = document.getElementById('deleteWithCardsConfirm');
+    confirmBtn.onclick = function() {
+      var moveTo = select.value;
+      var fd = new FormData();
+      fd.append('move_to', moveTo);
+      var url = type === 'category'
+        ? '/category/' + slug + '/delete'
+        : '/status/' + slug + '/delete';
+      fetch(url, { method: 'POST', body: fd })
+        .then(function() {
+          hideModal('deleteWithCardsModal');
+          location.reload();
+        });
+    };
+
+    hideModal('settingsModal');
+    showModal('deleteWithCardsModal');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Subtasks
+  // ---------------------------------------------------------------------------
   function initSubtasks(container) {
     container.addEventListener('click', function(e) {
-      let btn = e.target.closest('.remove-subtask-btn');
+      var btn = e.target.closest('.remove-subtask-btn');
       if (btn && container.contains(btn)) {
         btn.closest('.subtask-row').remove();
       }
     });
-    const form = container.closest('form');
+    var form = container.closest('form');
     if (form) {
       form.querySelectorAll('.add-subtask-btn').forEach(function(btn) {
         btn.addEventListener('click', function() {
-          const row = document.createElement('div');
+          var row = document.createElement('div');
           row.className = 'subtask-row flex items-center space-x-2 mb-2';
-          row.innerHTML = `
-            <input type="checkbox" class="subtask-complete w-4 h-4 text-blue-600 rounded focus:ring-blue-500">
-            <input type="text" class="subtask-text flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" placeholder="Subtask description">
-            <button type="button" class="remove-subtask-btn text-red-500 hover:text-red-700 p-1" title="Remove">
-              <i class="bi bi-x text-lg"></i>
-            </button>
-          `;
+          row.innerHTML = '<input type="checkbox" class="subtask-complete w-4 h-4 text-blue-600 rounded focus:ring-blue-500"><input type="text" class="subtask-text flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" placeholder="Subtask description"><button type="button" class="remove-subtask-btn text-red-500 hover:text-red-700 p-1" title="Remove"><i class="bi bi-x text-lg"></i></button>';
           container.appendChild(row);
         });
       });
@@ -599,12 +590,12 @@
   }
 
   function prepareSubtasks(form) {
-    const container = form.querySelector('.subtasks-container');
-    const hidden = form.querySelector('.subtasks-hidden');
-    let subtasks = [];
+    var container = form.querySelector('.subtasks-container');
+    var hidden = form.querySelector('.subtasks-hidden');
+    var subtasks = [];
     container.querySelectorAll('.subtask-row').forEach(function(row) {
-      const complete = row.querySelector('.subtask-complete').checked ? '1' : '0';
-      const text = row.querySelector('.subtask-text').value.trim();
+      var complete = row.querySelector('.subtask-complete').checked ? '1' : '0';
+      var text = row.querySelector('.subtask-text').value.trim();
       if (text !== '') {
         subtasks.push(complete + '|' + text);
       }
@@ -613,50 +604,10 @@
     return true;
   }
 
-  document.body.addEventListener('htmx:afterSwap', function(evt) {
-    if (evt.detail.target.id && evt.detail.target.id.startsWith('cards-')) {
-      hideModal('addCardModal');
-      var form = document.getElementById('addCardForm');
-      if (form) {
-        form.reset();
-        document.getElementById('addCardCategory').value = 'work';
-        updateAddCardTarget();
-        const container = form.querySelector('.subtasks-container');
-        if (container) {
-          container.innerHTML = '';
-        }
-      }
-    }
-
-    if (evt.detail.target.id === 'editCardModalContent') {
-      showModal('editCardModal');
-      var container = document.getElementById('editCardModalContent').querySelector('.subtasks-container');
-      if (container) {
-        initSubtasks(container);
-      }
-    }
-
-    if (evt.detail.target && evt.detail.target.id && evt.detail.target.id.startsWith('card-')) {
-      hideModal('editCardModal');
-    }
-  });
-
-  document.addEventListener('DOMContentLoaded', function() {
-    initDarkMode();
-    updateAddCardTarget();
-
-    var addForm = document.getElementById('addCardForm');
-    if (addForm) {
-      var container = addForm.querySelector('.subtasks-container');
-      if (container) {
-        initSubtasks(container);
-      }
-    }
-
-    toggleBoardRow('work');
-    toggleBoardRow('personal');
-    toggleBoardRow('stardom');
-
+  // ---------------------------------------------------------------------------
+  // Card minimize on load
+  // ---------------------------------------------------------------------------
+  function initCardMinimize() {
     document.querySelectorAll('[aria-label="Toggle card"]').forEach(function(btn) {
       var card = btn.closest('[data-id]');
       if (!card) return;
@@ -667,7 +618,51 @@
       icon.classList.remove('bi-dash-square');
       icon.classList.add('bi-plus-square');
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // HTMX events
+  // ---------------------------------------------------------------------------
+  document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.id && evt.detail.target.id.startsWith('cards-')) {
+      hideModal('addCardModal');
+      var form = document.getElementById('addCardForm');
+      if (form) {
+        form.reset();
+        updateAddCardTarget();
+        var container = form.querySelector('.subtasks-container');
+        if (container) container.innerHTML = '';
+      }
+    }
+
+    if (evt.detail.target.id === 'editCardModalContent') {
+      showModal('editCardModal');
+      var container = document.getElementById('editCardModalContent').querySelector('.subtasks-container');
+      if (container) initSubtasks(container);
+    }
+
+    if (evt.detail.target && evt.detail.target.id && evt.detail.target.id.startsWith('card-')) {
+      hideModal('editCardModal');
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Init
+  // ---------------------------------------------------------------------------
+  document.addEventListener('DOMContentLoaded', function() {
+    initDarkMode();
+    updateAddCardTarget();
+    initSortable();
+    initSettingsSortable();
+    initCardMinimize();
+
+    var addForm = document.getElementById('addCardForm');
+    if (addForm) {
+      var container = addForm.querySelector('.subtasks-container');
+      if (container) initSubtasks(container);
+    }
   });
 </script>
 </body>
 </html>
+{{end}}
