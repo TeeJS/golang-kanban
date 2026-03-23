@@ -284,6 +284,7 @@
         });
         var newBoard = doc.getElementById('board');
         if (newBoard) boardEl.outerHTML = newBoard.outerHTML;
+        htmx.process(document.getElementById('board'));
         initSortable();
         initCardMinimize();
       });
