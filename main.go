@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	_ "github.com/lib/pq"
 )
@@ -82,6 +84,21 @@ type SlugOrderPayload struct {
 
 var db *sql.DB
 var tmpl *template.Template
+
+// SSE broadcaster
+var sseClients = make(map[chan string]struct{})
+var sseMu sync.Mutex
+
+func broadcastBoardUpdate() {
+	sseMu.Lock()
+	defer sseMu.Unlock()
+	for ch := range sseClients {
+		select {
+		case ch <- "board-updated":
+		default:
+		}
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Startup
@@ -159,6 +176,7 @@ func main() {
 	http.HandleFunc("/api/cards", apiCardsHandler)
 	http.HandleFunc("/api/categories", apiCategoriesHandler)
 	http.HandleFunc("/api/statuses", apiStatusesHandler)
+	http.HandleFunc("/events", sseHandler)
 
 	serverPort := getEnv("SERVER_PORT", "17808")
 	log.Println("Server started on :" + serverPort)
@@ -532,6 +550,8 @@ func createCardHandler(w http.ResponseWriter, r *http.Request) {
 		Subtasks: subtasks, Status: status, Category: category, CardOrder: maxOrder,
 	}
 
+	broadcastBoardUpdate()
+
 	if r.Header.Get("HX-Request") != "" {
 		if err := tmpl.ExecuteTemplate(w, "card_fragment.html", card); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -627,6 +647,8 @@ func moveCardHandler(w http.ResponseWriter, r *http.Request, id int) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	broadcastBoardUpdate()
 
 	if _, err := w.Write([]byte("OK")); err != nil {
 		log.Printf("Error writing response: %v", err)
@@ -1181,6 +1203,41 @@ func reorderStatusesHandler(w http.ResponseWriter, r *http.Request) {
 
 // ---------------------------------------------------------------------------
 // JSON API endpoints (for MCP / external integrations)
+// ---------------------------------------------------------------------------
+
+func sseHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	ch := make(chan string, 1)
+	sseMu.Lock()
+	sseClients[ch] = struct{}{}
+	sseMu.Unlock()
+
+	defer func() {
+		sseMu.Lock()
+		delete(sseClients, ch)
+		sseMu.Unlock()
+	}()
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case msg := <-ch:
+			fmt.Fprintf(w, "event: %s\ndata: {}\n\n", msg)
+			flusher.Flush()
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 
 func apiCardsHandler(w http.ResponseWriter, r *http.Request) {
