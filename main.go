@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	_ "github.com/lib/pq"
 )
@@ -1209,6 +1210,13 @@ func sseHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
 
 	ch := make(chan string, 1)
 	sseMu.Lock()
@@ -1221,11 +1229,8 @@ func sseHandler(w http.ResponseWriter, r *http.Request) {
 		sseMu.Unlock()
 	}()
 
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
-		return
-	}
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
 
 	for {
 		select {
@@ -1233,6 +1238,9 @@ func sseHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		case msg := <-ch:
 			fmt.Fprintf(w, "event: %s\ndata: {}\n\n", msg)
+			flusher.Flush()
+		case <-ticker.C:
+			fmt.Fprintf(w, ": keepalive\n\n")
 			flusher.Flush()
 		}
 	}
