@@ -264,12 +264,24 @@
   // Board reload helper
   // ---------------------------------------------------------------------------
   function reloadBoard() {
+    var openRows = [];
+    document.querySelectorAll('[id^="row-"]').forEach(function(el) {
+      if (!el.classList.contains('hidden')) {
+        openRows.push(el.id.replace('row-', ''));
+      }
+    });
     fetch('/board')
       .then(function(r) { return r.text(); })
       .then(function(html) {
         var boardEl = document.getElementById('board');
         if (!boardEl) return;
         boardEl.outerHTML = html;
+        openRows.forEach(function(slug) {
+          var row = document.getElementById('row-' + slug);
+          var icon = document.getElementById('toggle-icon-' + slug);
+          if (row) row.classList.remove('hidden');
+          if (icon) { icon.classList.remove('bi-chevron-right'); icon.classList.add('bi-chevron-down'); }
+        });
         initSortable();
         initCardMinimize();
       });
