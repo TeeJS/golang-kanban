@@ -156,6 +156,9 @@ func main() {
 	http.HandleFunc("/category/", categoryRouter)
 	http.HandleFunc("/status", createStatusHandler)
 	http.HandleFunc("/status/", statusRouter)
+	http.HandleFunc("/api/cards", apiCardsHandler)
+	http.HandleFunc("/api/categories", apiCategoriesHandler)
+	http.HandleFunc("/api/statuses", apiStatusesHandler)
 
 	serverPort := getEnv("SERVER_PORT", "17808")
 	log.Println("Server started on :" + serverPort)
@@ -1174,4 +1177,89 @@ func reorderStatusesHandler(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write([]byte("OK")); err != nil {
 		log.Printf("Error writing response: %v", err)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// JSON API endpoints (for MCP / external integrations)
+// ---------------------------------------------------------------------------
+
+func apiCardsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	rows, err := db.Query(`SELECT id, title, description, subtasks, status, category, card_order FROM cards ORDER BY category, status, card_order`)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	cards := []Card{}
+	for rows.Next() {
+		var c Card
+		if err := rows.Scan(&c.ID, &c.Title, &c.Description, &c.Subtasks, &c.Status, &c.Category, &c.CardOrder); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		cards = append(cards, c)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(cards)
+}
+
+func apiCategoriesHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	rows, err := db.Query(`SELECT id, name, slug, row_order, locked FROM categories ORDER BY row_order`)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	cats := []Category{}
+	for rows.Next() {
+		var c Category
+		if err := rows.Scan(&c.ID, &c.Name, &c.Slug, &c.RowOrder, &c.Locked); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		cats = append(cats, c)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(cats)
+}
+
+func apiStatusesHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	rows, err := db.Query(`SELECT id, name, slug, col_order, locked FROM statuses ORDER BY col_order`)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	statuses := []Status{}
+	for rows.Next() {
+		var s Status
+		if err := rows.Scan(&s.ID, &s.Name, &s.Slug, &s.ColOrder, &s.Locked); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		statuses = append(statuses, s)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(statuses)
 }
