@@ -148,6 +148,13 @@ func main() {
 		"parseSubtasks":       parseSubtasks,
 		"hasSubtasks":         hasSubtasks,
 		"allSubtasksComplete": allSubtasksComplete,
+		"isOverdue": func(d sql.NullTime) bool {
+			if !d.Valid {
+				return false
+			}
+			today := time.Now().Truncate(24 * time.Hour)
+			return d.Time.Before(today)
+		},
 		"colGridClass": func(n int) string {
 			switch {
 			case n <= 2:
