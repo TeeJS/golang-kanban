@@ -29,6 +29,9 @@ type Card struct {
 	Status      string
 	Category    string
 	CardOrder   int
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	DueOn       sql.NullTime
 }
 
 type Subtask struct {
@@ -216,6 +219,9 @@ func runMigrations() error {
 		ON CONFLICT (slug) DO NOTHING`,
 		// Migrate any legacy stardom cards to other
 		`UPDATE cards SET category = 'other' WHERE category = 'stardom'`,
+		`ALTER TABLE cards ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
+		`ALTER TABLE cards ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
+		`ALTER TABLE cards ADD COLUMN IF NOT EXISTS due_on DATE`,
 	}
 
 	for _, m := range migrations {
@@ -289,9 +295,9 @@ func isValidStatus(slug string) bool {
 func getCardByID(id int) (*Card, error) {
 	var card Card
 	err := db.QueryRow(
-		`SELECT id, title, description, subtasks, status, category, card_order FROM cards WHERE id=$1`,
+		`SELECT id, title, description, subtasks, status, category, card_order, created_at, updated_at, due_on FROM cards WHERE id=$1`,
 		id,
-	).Scan(&card.ID, &card.Title, &card.Description, &card.Subtasks, &card.Status, &card.Category, &card.CardOrder)
+	).Scan(&card.ID, &card.Title, &card.Description, &card.Subtasks, &card.Status, &card.Category, &card.CardOrder, &card.CreatedAt, &card.UpdatedAt, &card.DueOn)
 	if err != nil {
 		return nil, err
 	}
@@ -331,7 +337,7 @@ func buildBoardData() (*BoardTemplateData, error) {
 
 	// Query cards
 	cardRows, err := db.Query(`
-		SELECT id, title, description, subtasks, status, category, card_order
+		SELECT id, title, description, subtasks, status, category, card_order, created_at, updated_at, due_on
 		FROM cards
 		ORDER BY card_order, id
 	`)
@@ -342,7 +348,7 @@ func buildBoardData() (*BoardTemplateData, error) {
 
 	for cardRows.Next() {
 		var c Card
-		if err := cardRows.Scan(&c.ID, &c.Title, &c.Description, &c.Subtasks, &c.Status, &c.Category, &c.CardOrder); err != nil {
+		if err := cardRows.Scan(&c.ID, &c.Title, &c.Description, &c.Subtasks, &c.Status, &c.Category, &c.CardOrder, &c.CreatedAt, &c.UpdatedAt, &c.DueOn); err != nil {
 			continue
 		}
 		catI, okCat := catIndex[c.Category]
@@ -682,8 +688,16 @@ func updateCardHandler(w http.ResponseWriter, r *http.Request, id int) {
 	title := r.FormValue("title")
 	description := r.FormValue("description")
 	subtasks := r.FormValue("subtasks")
+	dueDateStr := r.FormValue("due_on")
 
-	_, err := db.Exec(`UPDATE cards SET title=$1, description=$2, subtasks=$3 WHERE id=$4`, title, description, subtasks, id)
+	var dueOn sql.NullTime
+	if dueDateStr != "" {
+		if t, err := time.Parse("2006-01-02", dueDateStr); err == nil {
+			dueOn = sql.NullTime{Time: t, Valid: true}
+		}
+	}
+
+	_, err := db.Exec(`UPDATE cards SET title=$1, description=$2, subtasks=$3, updated_at=NOW(), due_on=$4 WHERE id=$5`, title, description, subtasks, dueOn, id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1254,7 +1268,7 @@ func apiCardsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := db.Query(`SELECT id, title, description, subtasks, status, category, card_order FROM cards ORDER BY category, status, card_order`)
+	rows, err := db.Query(`SELECT id, title, description, subtasks, status, category, card_order, created_at, updated_at, due_on FROM cards ORDER BY category, status, card_order`)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1264,7 +1278,7 @@ func apiCardsHandler(w http.ResponseWriter, r *http.Request) {
 	cards := []Card{}
 	for rows.Next() {
 		var c Card
-		if err := rows.Scan(&c.ID, &c.Title, &c.Description, &c.Subtasks, &c.Status, &c.Category, &c.CardOrder); err != nil {
+		if err := rows.Scan(&c.ID, &c.Title, &c.Description, &c.Subtasks, &c.Status, &c.Category, &c.CardOrder, &c.CreatedAt, &c.UpdatedAt, &c.DueOn); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
