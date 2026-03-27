@@ -188,6 +188,17 @@ func main() {
 			today := time.Now().Truncate(24 * time.Hour)
 			return d.Time.Before(today)
 		},
+		"isTicketOverdue": func(dueBy string) bool {
+			if dueBy == "" {
+				return false
+			}
+			t, err := time.Parse(time.RFC3339, dueBy)
+			if err != nil {
+				return false
+			}
+			today := time.Now().Truncate(24 * time.Hour)
+			return !t.After(today)
+		},
 		"colGridClass": func(n int) string {
 			switch {
 			case n <= 2:
@@ -1460,10 +1471,9 @@ func fetchFreshserviceTickets() ([]FreshserviceTicket, error) {
 	}
 
 	sixMonthsAgo := time.Now().AddDate(0, -6, 0).Format("2006-01-02")
-	tomorrow := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
 	query := fmt.Sprintf(
-		`(status:2 OR status:3 OR status:6 OR status:7 OR status:8) AND agent_id:33000703321 AND created_at:>'%s' AND due_by:<'%s'`,
-		sixMonthsAgo, tomorrow,
+		`(status:2 OR status:3 OR status:6 OR status:7 OR status:8) AND agent_id:33000703321 AND created_at:>'%s'`,
+		sixMonthsAgo,
 	)
 
 	params := url.Values{}
@@ -1554,10 +1564,9 @@ func fetchUnassignedTickets() ([]FreshserviceTicket, error) {
 	}
 
 	sixMonthsAgo := time.Now().AddDate(0, -6, 0).Format("2006-01-02")
-	tomorrow := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
 	query := fmt.Sprintf(
-		`(status:2 OR status:3 OR status:6 OR status:7) AND (group_id:33000158516 OR group_id:33000158515) AND agent_id:null AND created_at:>'%s' AND due_by:<'%s'`,
-		sixMonthsAgo, tomorrow,
+		`(status:2 OR status:3 OR status:6 OR status:7) AND (group_id:33000158516 OR group_id:33000158515) AND agent_id:null AND created_at:>'%s'`,
+		sixMonthsAgo,
 	)
 
 	params := url.Values{}
