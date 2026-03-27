@@ -72,13 +72,15 @@ type BoardTemplateData struct {
 	Rows                    []CategoryRow
 	Categories              []Category
 	Statuses                []Status
-	HelpdeskRefreshInterval int
+	HelpdeskRefreshInterval    int
+	UnassignedRefreshInterval  int
 }
 
 type FreshserviceTicket struct {
 	ID      int    `json:"id"`
 	Subject string `json:"subject"`
 	Status  int    `json:"status"`
+	GroupID int    `json:"group_id"`
 }
 
 type FreshserviceResponse struct {
@@ -219,6 +221,7 @@ func main() {
 	http.HandleFunc("/api/statuses", apiStatusesHandler)
 	http.HandleFunc("/api/settings", settingsHandler)
 	http.HandleFunc("/helpdesk/fragment", helpdeskFragmentHandler)
+	http.HandleFunc("/unassigned/fragment", unassignedFragmentHandler)
 	http.HandleFunc("/events", sseHandler)
 
 	serverPort := getEnv("SERVER_PORT", "17808")
@@ -266,6 +269,7 @@ func runMigrations() error {
 			value TEXT NOT NULL
 		)`,
 		`INSERT INTO settings (key, value) VALUES ('helpdesk_refresh_interval', '300') ON CONFLICT (key) DO NOTHING`,
+		`INSERT INTO settings (key, value) VALUES ('unassigned_refresh_interval', '300') ON CONFLICT (key) DO NOTHING`,
 	}
 
 	for _, m := range migrations {
@@ -425,7 +429,8 @@ func buildBoardData() (*BoardTemplateData, error) {
 		Rows:                    rows,
 		Categories:              cats,
 		Statuses:                statuses,
-		HelpdeskRefreshInterval: getSettingInt("helpdesk_refresh_interval", 300),
+		HelpdeskRefreshInterval:   getSettingInt("helpdesk_refresh_interval", 300),
+		UnassignedRefreshInterval: getSettingInt("unassigned_refresh_interval", 300),
 	}, nil
 }
 
@@ -1430,6 +1435,17 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if val := r.FormValue("unassigned_refresh_interval"); val != "" {
+		n, err := strconv.Atoi(val)
+		if err != nil || n < 15 || n > 900 {
+			http.Error(w, "Invalid value: must be 15–900", http.StatusBadRequest)
+			return
+		}
+		if err := setSettingInt("unassigned_refresh_interval", n); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -1526,6 +1542,78 @@ func helpdeskFragmentHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := tmpl.ExecuteTemplate(w, "helpdesk_row.html", data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func fetchUnassignedTickets() ([]FreshserviceTicket, error) {
+	if fsAPIKey == "" || fsDomain == "" {
+		return nil, fmt.Errorf("Freshservice not configured")
+	}
+
+	sixMonthsAgo := time.Now().AddDate(0, -6, 0).Format("2006-01-02")
+	query := fmt.Sprintf(
+		`(status:2 OR status:3 OR status:6 OR status:7) AND (group_id:33000158516 OR group_id:33000158515) AND agent_id:null AND created_at:>'%s'`,
+		sixMonthsAgo,
+	)
+
+	params := url.Values{}
+	params.Set("query", `"`+query+`"`)
+	params.Set("per_page", "100")
+	apiURL := fmt.Sprintf("https://%s/api/v2/tickets/filter?%s", fsDomain, params.Encode())
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.SetBasicAuth(fsAPIKey, "X")
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Freshservice API returned %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var fsResp FreshserviceResponse
+	if err := json.Unmarshal(body, &fsResp); err != nil {
+		return nil, err
+	}
+
+	return fsResp.Tickets, nil
+}
+
+func unassignedFragmentHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	tickets, err := fetchUnassignedTickets()
+	if err != nil {
+		log.Printf("Unassigned fetch error: %v", err)
+		tickets = []FreshserviceTicket{}
+	}
+
+	data := struct {
+		Tickets []FreshserviceTicket
+		Domain  string
+	}{
+		Tickets: tickets,
+		Domain:  fsDomain,
+	}
+
+	if err := tmpl.ExecuteTemplate(w, "unassigned_row.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }

@@ -76,6 +76,13 @@
     </div>
   </div>
 
+  <div id="unassigned-wrapper"
+       class="max-w-7xl mx-auto space-y-4 mt-4"
+       hx-get="/unassigned/fragment"
+       hx-trigger="load, every {{.UnassignedRefreshInterval}}s, unassignedRefresh from:body"
+       hx-swap="innerHTML">
+  </div>
+
   <div id="helpdesk-wrapper"
        class="max-w-7xl mx-auto space-y-4 mt-4"
        hx-get="/helpdesk/fragment"
@@ -246,6 +253,26 @@
 
         <hr class="border-gray-200 dark:border-gray-600">
 
+        <!-- Unassigned -->
+        <div>
+          <h6 class="text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">Unassigned</h6>
+          <div class="flex items-center gap-3">
+            <label class="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">Refresh Interval (seconds, 15–900)</label>
+            <input
+              type="number"
+              id="unassignedRefreshInterval"
+              min="15"
+              max="900"
+              value="{{.UnassignedRefreshInterval}}"
+              class="w-24 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+            <button type="button" onclick="saveUnassignedSettings()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm">Save</button>
+            <span id="unassignedSettingsSaved" class="text-green-500 text-sm hidden">Saved! Reload to apply.</span>
+          </div>
+        </div>
+
+        <hr class="border-gray-200 dark:border-gray-600">
+
         <!-- Helpdesk -->
         <div>
           <h6 class="text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">Helpdesk</h6>
@@ -364,6 +391,35 @@
   // ---------------------------------------------------------------------------
   // Board row toggle
   // ---------------------------------------------------------------------------
+  function toggleUnassignedRow() {
+    var row = document.getElementById('row-unassigned');
+    var icon = document.getElementById('toggle-icon-unassigned');
+    if (!row || !icon) return;
+    row.classList.toggle('hidden');
+    if (row.classList.contains('hidden')) {
+      icon.classList.remove('bi-chevron-down');
+      icon.classList.add('bi-chevron-right');
+      localStorage.setItem('unassignedRowOpen', 'false');
+    } else {
+      icon.classList.remove('bi-chevron-right');
+      icon.classList.add('bi-chevron-down');
+      localStorage.setItem('unassignedRowOpen', 'true');
+      htmx.trigger(document.body, 'unassignedRefresh');
+    }
+  }
+
+  function restoreUnassignedRowState() {
+    var open = localStorage.getItem('unassignedRowOpen');
+    if (open === 'true') {
+      var row = document.getElementById('row-unassigned');
+      var icon = document.getElementById('toggle-icon-unassigned');
+      if (row) row.classList.remove('hidden');
+      if (icon) { icon.classList.remove('bi-chevron-right'); icon.classList.add('bi-chevron-down'); }
+    }
+  }
+
+  document.getElementById('unassigned-wrapper').addEventListener('htmx:afterSettle', restoreUnassignedRowState);
+
   function toggleHelpdeskRow() {
     var row = document.getElementById('row-helpdesk');
     var icon = document.getElementById('toggle-icon-helpdesk');
@@ -541,6 +597,28 @@
       .then(function() {
         input.value = '';
         location.reload();
+      });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Settings: unassigned refresh interval
+  // ---------------------------------------------------------------------------
+  function saveUnassignedSettings() {
+    var val = document.getElementById('unassignedRefreshInterval').value;
+    var n = parseInt(val, 10);
+    if (isNaN(n) || n < 15 || n > 900) {
+      alert('Refresh interval must be between 15 and 900 seconds.');
+      return;
+    }
+    var fd = new FormData();
+    fd.append('unassigned_refresh_interval', String(n));
+    fetch('/api/settings', { method: 'POST', body: fd })
+      .then(function(r) {
+        if (r.ok) {
+          var saved = document.getElementById('unassignedSettingsSaved');
+          saved.classList.remove('hidden');
+          setTimeout(function() { saved.classList.add('hidden'); }, 3000);
+        }
       });
   }
 
