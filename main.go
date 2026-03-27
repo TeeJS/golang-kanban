@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -67,9 +69,25 @@ type CategoryRow struct {
 }
 
 type BoardTemplateData struct {
-	Rows       []CategoryRow
-	Categories []Category
-	Statuses   []Status
+	Rows                    []CategoryRow
+	Categories              []Category
+	Statuses                []Status
+	HelpdeskRefreshInterval int
+}
+
+type FreshserviceTicket struct {
+	ID      int    `json:"id"`
+	Subject string `json:"subject"`
+	Status  int    `json:"status"`
+}
+
+type FreshserviceResponse struct {
+	Tickets []FreshserviceTicket `json:"tickets"`
+}
+
+type HelpdeskColumn struct {
+	Name    string
+	Tickets []FreshserviceTicket
 }
 
 type OrderUpdatePayload struct {
@@ -88,6 +106,8 @@ type SlugOrderPayload struct {
 
 var db *sql.DB
 var tmpl *template.Template
+var fsAPIKey string
+var fsDomain string
 
 // SSE broadcaster
 var sseClients = make(map[chan string]struct{})
@@ -136,7 +156,17 @@ func main() {
 		log.Fatalf("Migration failed: %v", err)
 	}
 
+	fsAPIKey = getEnv("FRESHSERVICE_APIKEY", "")
+	fsDomain = getEnv("FRESHSERVICE_DOMAIN", "")
+
 	funcMap := template.FuncMap{
+		"truncate": func(s string, n int) string {
+			r := []rune(s)
+			if len(r) <= n {
+				return s
+			}
+			return string(r[:n]) + "…"
+		},
 		"split": func(s, sep string) []string {
 			s = strings.TrimSpace(s)
 			if s == "" {
@@ -187,6 +217,8 @@ func main() {
 	http.HandleFunc("/api/cards", apiCardsHandler)
 	http.HandleFunc("/api/categories", apiCategoriesHandler)
 	http.HandleFunc("/api/statuses", apiStatusesHandler)
+	http.HandleFunc("/api/settings", settingsHandler)
+	http.HandleFunc("/helpdesk/fragment", helpdeskFragmentHandler)
 	http.HandleFunc("/events", sseHandler)
 
 	serverPort := getEnv("SERVER_PORT", "17808")
@@ -229,6 +261,11 @@ func runMigrations() error {
 		`ALTER TABLE cards ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
 		`ALTER TABLE cards ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
 		`ALTER TABLE cards ADD COLUMN IF NOT EXISTS due_on DATE`,
+		`CREATE TABLE IF NOT EXISTS settings (
+			key   TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		)`,
+		`INSERT INTO settings (key, value) VALUES ('helpdesk_refresh_interval', '300') ON CONFLICT (key) DO NOTHING`,
 	}
 
 	for _, m := range migrations {
@@ -245,6 +282,24 @@ func getEnv(key, def string) string {
 		return def
 	}
 	return v
+}
+
+func getSettingInt(key string, defaultVal int) int {
+	var val string
+	err := db.QueryRow(`SELECT value FROM settings WHERE key=$1`, key).Scan(&val)
+	if err != nil {
+		return defaultVal
+	}
+	n, err := strconv.Atoi(val)
+	if err != nil {
+		return defaultVal
+	}
+	return n
+}
+
+func setSettingInt(key string, val int) error {
+	_, err := db.Exec(`UPDATE settings SET value=$1 WHERE key=$2`, strconv.Itoa(val), key)
+	return err
 }
 
 // ---------------------------------------------------------------------------
@@ -367,9 +422,10 @@ func buildBoardData() (*BoardTemplateData, error) {
 	}
 
 	return &BoardTemplateData{
-		Rows:       rows,
-		Categories: cats,
-		Statuses:   statuses,
+		Rows:                    rows,
+		Categories:              cats,
+		Statuses:                statuses,
+		HelpdeskRefreshInterval: getSettingInt("helpdesk_refresh_interval", 300),
 	}, nil
 }
 
@@ -1348,4 +1404,128 @@ func apiStatusesHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(statuses)
+}
+
+// ---------------------------------------------------------------------------
+// Settings handler
+// ---------------------------------------------------------------------------
+
+func settingsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+	if val := r.FormValue("helpdesk_refresh_interval"); val != "" {
+		n, err := strconv.Atoi(val)
+		if err != nil || n < 15 || n > 900 {
+			http.Error(w, "Invalid value: must be 15–900", http.StatusBadRequest)
+			return
+		}
+		if err := setSettingInt("helpdesk_refresh_interval", n); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// ---------------------------------------------------------------------------
+// Freshservice / Helpdesk handlers
+// ---------------------------------------------------------------------------
+
+func fetchFreshserviceTickets() ([]FreshserviceTicket, error) {
+	if fsAPIKey == "" || fsDomain == "" {
+		return nil, fmt.Errorf("Freshservice not configured")
+	}
+
+	sixMonthsAgo := time.Now().AddDate(0, -6, 0).Format("2006-01-02")
+	query := fmt.Sprintf(
+		`(status:2 OR status:3 OR status:6 OR status:7 OR status:8) AND agent_id:33000703321 AND created_at:>'%s'`,
+		sixMonthsAgo,
+	)
+
+	params := url.Values{}
+	params.Set("query", `"`+query+`"`)
+	params.Set("per_page", "100")
+	apiURL := fmt.Sprintf("https://%s/api/v2/tickets/filter?%s", fsDomain, params.Encode())
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.SetBasicAuth(fsAPIKey, "X")
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Freshservice API returned %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var fsResp FreshserviceResponse
+	if err := json.Unmarshal(body, &fsResp); err != nil {
+		return nil, err
+	}
+
+	return fsResp.Tickets, nil
+}
+
+func helpdeskFragmentHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	tickets, err := fetchFreshserviceTickets()
+	if err != nil {
+		log.Printf("Freshservice fetch error: %v", err)
+		tickets = []FreshserviceTicket{}
+	}
+
+	statusCols := []struct {
+		Name     string
+		StatusID int
+	}{
+		{"Open", 2},
+		{"Pending", 3},
+		{"Pending Customer", 6},
+		{"Pending Vendor", 7},
+		{"On Hold", 8},
+	}
+
+	cols := make([]HelpdeskColumn, len(statusCols))
+	for i, sc := range statusCols {
+		cols[i] = HelpdeskColumn{Name: sc.Name}
+		for _, t := range tickets {
+			if t.Status == sc.StatusID {
+				cols[i].Tickets = append(cols[i].Tickets, t)
+			}
+		}
+	}
+
+	data := struct {
+		Columns []HelpdeskColumn
+		Domain  string
+	}{
+		Columns: cols,
+		Domain:  fsDomain,
+	}
+
+	if err := tmpl.ExecuteTemplate(w, "helpdesk_row.html", data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }

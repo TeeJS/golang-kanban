@@ -77,6 +77,13 @@
   </div>
 
   {{template "board_fragment.html" .}}
+
+  <div id="helpdesk-wrapper"
+       class="max-w-7xl mx-auto space-y-4 mt-4"
+       hx-get="/helpdesk/fragment"
+       hx-trigger="load, every {{.HelpdeskRefreshInterval}}s, helpdeskRefresh from:body"
+       hx-swap="innerHTML">
+  </div>
 </div>
 
 <!-- Add Card Modal -->
@@ -236,6 +243,26 @@
           </form>
         </div>
 
+        <hr class="border-gray-200 dark:border-gray-600">
+
+        <!-- Helpdesk -->
+        <div>
+          <h6 class="text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">Helpdesk</h6>
+          <div class="flex items-center gap-3">
+            <label class="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">Refresh Interval (seconds, 15–900)</label>
+            <input
+              type="number"
+              id="helpdeskRefreshInterval"
+              min="15"
+              max="900"
+              value="{{.HelpdeskRefreshInterval}}"
+              class="w-24 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+            <button type="button" onclick="saveHelpdeskSettings()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm">Save</button>
+            <span id="helpdeskSettingsSaved" class="text-green-500 text-sm hidden">Saved! Reload to apply.</span>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
@@ -336,6 +363,21 @@
   // ---------------------------------------------------------------------------
   // Board row toggle
   // ---------------------------------------------------------------------------
+  function toggleHelpdeskRow() {
+    var row = document.getElementById('row-helpdesk');
+    var icon = document.getElementById('toggle-icon-helpdesk');
+    if (!row || !icon) return;
+    row.classList.toggle('hidden');
+    if (row.classList.contains('hidden')) {
+      icon.classList.remove('bi-chevron-down');
+      icon.classList.add('bi-chevron-right');
+    } else {
+      icon.classList.remove('bi-chevron-right');
+      icon.classList.add('bi-chevron-down');
+      htmx.trigger(document.body, 'helpdeskRefresh');
+    }
+  }
+
   function toggleBoardRow(category) {
     var row = document.getElementById('row-' + category);
     var icon = document.getElementById('toggle-icon-' + category);
@@ -484,6 +526,28 @@
       .then(function() {
         input.value = '';
         location.reload();
+      });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Settings: helpdesk refresh interval
+  // ---------------------------------------------------------------------------
+  function saveHelpdeskSettings() {
+    var val = document.getElementById('helpdeskRefreshInterval').value;
+    var n = parseInt(val, 10);
+    if (isNaN(n) || n < 15 || n > 900) {
+      alert('Refresh interval must be between 15 and 900 seconds.');
+      return;
+    }
+    var fd = new FormData();
+    fd.append('helpdesk_refresh_interval', String(n));
+    fetch('/api/settings', { method: 'POST', body: fd })
+      .then(function(r) {
+        if (r.ok) {
+          var saved = document.getElementById('helpdeskSettingsSaved');
+          saved.classList.remove('hidden');
+          setTimeout(function() { saved.classList.add('hidden'); }, 3000);
+        }
       });
   }
 
