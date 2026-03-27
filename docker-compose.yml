@@ -16,5 +16,20 @@ services:
       dockerfile: Dockerfile
     ports:
       - "17808:17808"
+    depends_on:
+      - postgres
+    environment:
+      # Database connection — should match the postgres service above
+      DB_USER: user
+      DB_PASS: password
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: kanban
+      # Application
+      SERVER_PORT: 17808
+      # Auth — change these before deploying
+      ADMIN_USER: admin
+      ADMIN_PASS: changeme
+      SESSION_SECRET: change-this-to-a-long-random-string
 volumes:
   postgres_data:
