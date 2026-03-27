@@ -372,12 +372,26 @@
     if (row.classList.contains('hidden')) {
       icon.classList.remove('bi-chevron-down');
       icon.classList.add('bi-chevron-right');
+      localStorage.setItem('helpdeskRowOpen', 'false');
     } else {
       icon.classList.remove('bi-chevron-right');
       icon.classList.add('bi-chevron-down');
+      localStorage.setItem('helpdeskRowOpen', 'true');
       htmx.trigger(document.body, 'helpdeskRefresh');
     }
   }
+
+  function restoreHelpdeskRowState() {
+    var open = localStorage.getItem('helpdeskRowOpen');
+    if (open === 'true') {
+      var row = document.getElementById('row-helpdesk');
+      var icon = document.getElementById('toggle-icon-helpdesk');
+      if (row) row.classList.remove('hidden');
+      if (icon) { icon.classList.remove('bi-chevron-right'); icon.classList.add('bi-chevron-down'); }
+    }
+  }
+
+  document.getElementById('helpdesk-wrapper').addEventListener('htmx:afterSettle', restoreHelpdeskRowState);
 
   function toggleBoardRow(category) {
     var row = document.getElementById('row-' + category);
