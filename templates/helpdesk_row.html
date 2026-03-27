@@ -25,7 +25,7 @@
         </div>
         <div class="space-y-3">
           {{range .Tickets}}
-          <div class="bg-white dark:bg-gray-700 rounded-lg px-2 py-2 shadow-md border border-gray-200 dark:border-gray-600">
+          <div class="bg-white dark:bg-gray-700 rounded-lg px-2 py-2 shadow-md border border-red-500">
             <a href="https://{{$.Domain}}/a/tickets/{{.ID}}?current_tab=details" target="_blank"
                class="text-sm font-semibold text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 mr-1">#{{.ID}}</a><span class="text-sm font-semibold text-gray-900 dark:text-white leading-tight">{{truncate .Subject 32}}</span>
           </div>
