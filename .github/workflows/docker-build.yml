@@ -19,7 +19,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ghcr.io/nicolashaas/golang-kanban
+            ghcr.io/${{ github.repository_owner }}/golang-kanban
           # Generate tags based on:
           # - semver tag (e.g., v1.2.3) when present
           # - branch name for branch events
@@ -28,6 +28,7 @@ jobs:
             type=semver,pattern={{version}}
             type=ref,event=branch
             type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3

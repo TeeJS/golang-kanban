@@ -76,14 +76,15 @@
     </div>
   </div>
 
-  {{template "board_fragment.html" .}}
-
   <div id="helpdesk-wrapper"
        class="max-w-7xl mx-auto space-y-4 mt-4"
        hx-get="/helpdesk/fragment"
        hx-trigger="load, every {{.HelpdeskRefreshInterval}}s, helpdeskRefresh from:body"
        hx-swap="innerHTML">
   </div>
+
+  {{template "board_fragment.html" .}}
+
 </div>
 
 <!-- Add Card Modal -->
