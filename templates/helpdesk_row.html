@@ -25,17 +25,11 @@
         </div>
         <div class="space-y-3">
           {{range .Tickets}}
-          <div class="bg-white dark:bg-gray-700 rounded-lg px-2 pt-2 pb-1 shadow-md border border-gray-200 dark:border-gray-600">
-            <div class="mb-2">
-              <span class="text-sm font-semibold text-gray-900 dark:text-white leading-tight">{{truncate .Subject 32}}</span>
-            </div>
-            <div class="flex justify-between items-center pt-1 border-t border-gray-100 dark:border-gray-600">
-              <span class="p-1 text-sm text-blue-600 dark:text-blue-400">#{{.ID}}</span>
-              <a href="https://{{$.Domain}}/a/tickets/{{.ID}}?current_tab=details" target="_blank" title="Open ticket #{{.ID}}"
-                 class="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 dark:hover:bg-red-900 rounded-lg transition-colors duration-200">
-                <i class="bi bi-paperclip text-sm"></i>
-              </a>
-            </div>
+          <div class="bg-white dark:bg-gray-700 rounded-lg px-2 py-2 shadow-md border border-gray-200 dark:border-gray-600">
+            <a href="https://{{$.Domain}}/a/tickets/{{.ID}}?current_tab=details" target="_blank"
+               class="text-sm font-semibold text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 leading-tight">
+              #{{.ID}} {{truncate .Subject 32}}
+            </a>
           </div>
           {{else}}
           <p class="text-xs text-gray-400 dark:text-gray-500 italic">No tickets</p>
