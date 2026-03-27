@@ -1,7 +1,12 @@
 package main
 
 import (
+	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"html/template"
 	"log"
@@ -9,8 +14,10 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	_ "github.com/lib/pq"
+	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -28,8 +35,29 @@ type Card struct {
 	CardOrder   int
 }
 
+// ---------------------------------------------------------------------------
+// Auth types
+// ---------------------------------------------------------------------------
+
+type contextKey string
+
+const contextKeyUser contextKey = "user"
+
+type User struct {
+	ID           int
+	Username     string
+	PasswordHash string
+}
+
+type SessionData struct {
+	UserID   int    `json:"u"`
+	Username string `json:"n"`
+	Expires  int64  `json:"e"`
+}
+
 var db *sql.DB
 var tmpl *template.Template
+var sessionSecret []byte
 
 type OrderUpdatePayload struct {
 	Status string `json:"status"`
@@ -58,6 +86,32 @@ func main() {
 		}
 	}()
 
+	// Create users table if it doesn't exist.
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS users (
+		id            SERIAL PRIMARY KEY,
+		username      VARCHAR(50) UNIQUE NOT NULL,
+		password_hash VARCHAR(255) NOT NULL,
+		created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`)
+	if err != nil {
+		log.Fatalf("Failed to create users table: %v", err)
+	}
+
+	// Session secret — set SESSION_SECRET env var for persistence across restarts.
+	secret := getEnv("SESSION_SECRET", "")
+	if secret == "" {
+		log.Println("WARNING: SESSION_SECRET not set — sessions will be invalidated on restart. Set SESSION_SECRET in your environment.")
+		sessionSecret = make([]byte, 32)
+		if _, err := rand.Read(sessionSecret); err != nil {
+			log.Fatalf("Failed to generate session secret: %v", err)
+		}
+	} else {
+		sessionSecret = []byte(secret)
+	}
+
+	seedAdminUser()
+
 	funcMap := template.FuncMap{
 		"split": func(s, sep string) []string {
 			s = strings.TrimSpace(s)
@@ -74,6 +128,8 @@ func main() {
 	http.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
+	http.HandleFunc("/login", loginHandler)
+	http.HandleFunc("/logout", logoutHandler)
 	http.HandleFunc("/", indexHandler)
 	http.HandleFunc("/card", createCardHandler)
 	http.HandleFunc("/card/", cardRouter)
@@ -81,7 +137,7 @@ func main() {
 
 	serverPort := getEnv("SERVER_PORT", "17808")
 	log.Println("Server started on :" + serverPort)
-	log.Fatal(http.ListenAndServe(":"+serverPort, nil))
+	log.Fatal(http.ListenAndServe(":"+serverPort, authMiddleware(http.DefaultServeMux)))
 }
 
 func getEnv(key, def string) string {
@@ -336,4 +392,174 @@ func updateOrderHandler(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write([]byte("OK")); err != nil {
 		log.Printf("Error writing response: %v", err)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Auth helpers
+// ---------------------------------------------------------------------------
+
+func generatePassword(n int) string {
+	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		log.Fatalf("Failed to generate random password: %v", err)
+	}
+	for i := range b {
+		b[i] = chars[int(b[i])%len(chars)]
+	}
+	return string(b)
+}
+
+func seedAdminUser() {
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+		log.Printf("Auth: could not count users: %v", err)
+		return
+	}
+	if count > 0 {
+		return
+	}
+
+	username := getEnv("ADMIN_USER", "admin")
+	password := getEnv("ADMIN_PASS", "")
+	if password == "" {
+		password = generatePassword(8)
+		log.Printf("AUTH SETUP: No ADMIN_PASS set and no users exist. Created user '%s' with password: %s", username, password)
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		log.Fatalf("Auth: failed to hash admin password: %v", err)
+	}
+
+	if _, err := db.Exec(`INSERT INTO users (username, password_hash) VALUES ($1, $2)`, username, string(hash)); err != nil {
+		log.Printf("Auth: failed to seed admin user: %v", err)
+	} else {
+		log.Printf("Auth: seeded admin user '%s'", username)
+	}
+}
+
+func signSession(payload string) string {
+	mac := hmac.New(sha256.New, sessionSecret)
+	mac.Write([]byte(payload))
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func createSessionCookie(userID int, username string) (*http.Cookie, error) {
+	data := SessionData{
+		UserID:   userID,
+		Username: username,
+		Expires:  time.Now().Add(24 * time.Hour).Unix(),
+	}
+	jsonBytes, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
+	payload := base64.RawURLEncoding.EncodeToString(jsonBytes)
+	sig := signSession(payload)
+	value := payload + "." + sig
+
+	return &http.Cookie{
+		Name:     "kanban_session",
+		Value:    value,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   86400,
+	}, nil
+}
+
+func validateSessionCookie(r *http.Request) *SessionData {
+	cookie, err := r.Cookie("kanban_session")
+	if err != nil {
+		return nil
+	}
+	parts := strings.SplitN(cookie.Value, ".", 2)
+	if len(parts) != 2 {
+		return nil
+	}
+	payload, sig := parts[0], parts[1]
+	if sig != signSession(payload) {
+		return nil
+	}
+	jsonBytes, err := base64.RawURLEncoding.DecodeString(payload)
+	if err != nil {
+		return nil
+	}
+	var data SessionData
+	if err := json.Unmarshal(jsonBytes, &data); err != nil {
+		return nil
+	}
+	if time.Now().Unix() > data.Expires {
+		return nil
+	}
+	return &data
+}
+
+func authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Public paths
+		if r.URL.Path == "/login" || r.URL.Path == "/logout" || r.URL.Path == "/favicon.ico" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		session := validateSessionCookie(r)
+		if session == nil {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+		ctx := context.WithValue(r.Context(), contextKeyUser, session)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func loginHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		if validateSessionCookie(r) != nil {
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+			return
+		}
+		tmpl.ExecuteTemplate(w, "login.html", nil)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	username := strings.TrimSpace(r.FormValue("username"))
+	password := r.FormValue("password")
+
+	var user User
+	err := db.QueryRow(`SELECT id, username, password_hash FROM users WHERE username=$1`, username).
+		Scan(&user.ID, &user.Username, &user.PasswordHash)
+	if err != nil {
+		tmpl.ExecuteTemplate(w, "login.html", map[string]string{"Error": "Invalid username or password."})
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		tmpl.ExecuteTemplate(w, "login.html", map[string]string{"Error": "Invalid username or password."})
+		return
+	}
+
+	cookie, err := createSessionCookie(user.ID, user.Username)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	http.SetCookie(w, cookie)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func logoutHandler(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "kanban_session",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+	})
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
