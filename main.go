@@ -88,6 +88,26 @@ type FreshserviceResponse struct {
 	Tickets []FreshserviceTicket `json:"tickets"`
 }
 
+type TicketTask struct {
+	ID      int    `json:"id"`
+	Status  int    `json:"status"`
+	DueDate string `json:"due_date"`
+	GroupID int    `json:"group_id"`
+	Deleted bool   `json:"deleted"`
+}
+
+type TicketTasksResponse struct {
+	Tasks []TicketTask `json:"tasks"`
+}
+
+type UnassignedCard struct {
+	TicketID int
+	Subject  string
+	GroupID  int
+	DueBy    string
+	IsTask   bool
+}
+
 type HelpdeskColumn struct {
 	Name    string
 	Tickets []FreshserviceTicket
@@ -1611,21 +1631,151 @@ func unassignedFragmentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var cards []UnassignedCard
+
+	// Unassigned tickets
 	tickets, err := fetchUnassignedTickets()
 	if err != nil {
-		log.Printf("Unassigned fetch error: %v", err)
-		tickets = []FreshserviceTicket{}
+		log.Printf("Unassigned tickets fetch error: %v", err)
+	}
+	for _, t := range tickets {
+		cards = append(cards, UnassignedCard{
+			TicketID: t.ID,
+			Subject:  t.Subject,
+			GroupID:  t.GroupID,
+			DueBy:    t.DueBy,
+			IsTask:   false,
+		})
 	}
 
+	// Unassigned tasks from open tickets created in the last month
+	taskTickets, err := fetchRecentOpenTickets()
+	if err != nil {
+		log.Printf("Task tickets fetch error: %v", err)
+	}
+
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, tt := range taskTickets {
+		wg.Add(1)
+		go func(ticketID int, subject string) {
+			defer wg.Done()
+			tasks, err := fetchTicketTasks(ticketID)
+			if err != nil {
+				log.Printf("Task fetch error for ticket %d: %v", ticketID, err)
+				return
+			}
+			for _, task := range tasks {
+				if task.Deleted {
+					continue
+				}
+				if (task.Status == 1 || task.Status == 2) &&
+					(task.GroupID == 33000158516 || task.GroupID == 33000158515) {
+					mu.Lock()
+					cards = append(cards, UnassignedCard{
+						TicketID: ticketID,
+						Subject:  subject,
+						GroupID:  task.GroupID,
+						DueBy:    task.DueDate,
+						IsTask:   true,
+					})
+					mu.Unlock()
+				}
+			}
+		}(tt.ID, tt.Subject)
+	}
+	wg.Wait()
+
 	data := struct {
-		Tickets []FreshserviceTicket
-		Domain  string
+		Cards  []UnassignedCard
+		Domain string
 	}{
-		Tickets: tickets,
-		Domain:  fsDomain,
+		Cards:  cards,
+		Domain: fsDomain,
 	}
 
 	if err := tmpl.ExecuteTemplate(w, "unassigned_row.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func fetchRecentOpenTickets() ([]FreshserviceTicket, error) {
+	if fsAPIKey == "" || fsDomain == "" {
+		return nil, fmt.Errorf("Freshservice not configured")
+	}
+
+	oneMonthAgo := time.Now().AddDate(0, -1, 0).Format("2006-01-02")
+	query := fmt.Sprintf(`status:2 AND created_at:>'%s'`, oneMonthAgo)
+
+	params := url.Values{}
+	params.Set("query", `"`+query+`"`)
+	params.Set("per_page", "100")
+	apiURL := fmt.Sprintf("https://%s/api/v2/tickets/filter?%s", fsDomain, params.Encode())
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.SetBasicAuth(fsAPIKey, "X")
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Freshservice API returned %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var fsResp FreshserviceResponse
+	if err := json.Unmarshal(body, &fsResp); err != nil {
+		return nil, err
+	}
+
+	return fsResp.Tickets, nil
+}
+
+func fetchTicketTasks(ticketID int) ([]TicketTask, error) {
+	if fsAPIKey == "" || fsDomain == "" {
+		return nil, fmt.Errorf("Freshservice not configured")
+	}
+
+	apiURL := fmt.Sprintf("https://%s/api/v2/tickets/%d/tasks", fsDomain, ticketID)
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.SetBasicAuth(fsAPIKey, "X")
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Freshservice tasks API returned %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var tr TicketTasksResponse
+	if err := json.Unmarshal(body, &tr); err != nil {
+		return nil, err
+	}
+
+	return tr.Tasks, nil
 }
