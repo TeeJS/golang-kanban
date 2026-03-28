@@ -214,7 +214,7 @@
           let destCardIds = Array.from(destContainer.children)
               .map(child => child.getAttribute('data-id'))
               .filter(id => id !== null);
-          let destStatus = destContainer.id.split('-')[1];
+          let destStatus = destContainer.id.replace(/^cards-/, '');
           // Update destination lane.
           fetch("/card/order", {
             method: "POST",
@@ -227,7 +227,7 @@
             let originCardIds = Array.from(originContainer.children)
                 .map(child => child.getAttribute('data-id'))
                 .filter(id => id !== null);
-            let originStatus = originContainer.id.split('-')[1];
+            let originStatus = originContainer.id.replace(/^cards-/, '');
             fetch("/card/order", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
