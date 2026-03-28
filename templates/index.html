@@ -430,6 +430,11 @@
         handle: '.settings-drag-handle',
         animation: 150,
         onEnd: function() {
+          // Snap 'done' back to last position in DOM and in the order sent to server.
+          var doneEl = colsList.querySelector('[data-slug="done"]');
+          if (doneEl && colsList.lastElementChild !== doneEl) {
+            colsList.appendChild(doneEl);
+          }
           var order = Array.from(colsList.children).map(function(li) { return li.getAttribute('data-slug'); });
           fetch('/status/order', {
             method: 'POST',

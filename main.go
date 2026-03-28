@@ -1164,7 +1164,21 @@ func reorderStatusesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for i, slug := range payload.Order {
+	// Ensure 'done' is always last regardless of what the client sends.
+	filtered := make([]string, 0, len(payload.Order))
+	hasDone := false
+	for _, slug := range payload.Order {
+		if slug == "done" {
+			hasDone = true
+			continue
+		}
+		filtered = append(filtered, slug)
+	}
+	if hasDone {
+		filtered = append(filtered, "done")
+	}
+
+	for i, slug := range filtered {
 		if _, err := db.Exec(`UPDATE statuses SET col_order=$1 WHERE slug=$2`, i+1, slug); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
