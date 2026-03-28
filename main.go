@@ -395,10 +395,6 @@ func updateOrderHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
-	if payload.Status != StatusTodo && payload.Status != StatusInProgress && payload.Status != StatusDone {
-		http.Error(w, "Invalid status", http.StatusBadRequest)
-		return
-	}
 	for index, cardId := range payload.Order {
 		_, err := db.Exec("UPDATE cards SET status=$1, card_order=$2 WHERE id=$3", payload.Status, index+1, cardId)
 		if err != nil {
