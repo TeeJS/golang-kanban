@@ -164,6 +164,14 @@ func main() {
 
 func runMigrations() error {
 	migrations := []string{
+		`CREATE TABLE IF NOT EXISTS cards (
+			id          SERIAL PRIMARY KEY,
+			title       TEXT NOT NULL,
+			description TEXT NOT NULL DEFAULT '',
+			subtasks    TEXT NOT NULL DEFAULT '',
+			status      VARCHAR(50) NOT NULL DEFAULT 'todo',
+			card_order  INTEGER NOT NULL DEFAULT 0
+		)`,
 		`CREATE TABLE IF NOT EXISTS categories (
 			id        SERIAL PRIMARY KEY,
 			name      TEXT NOT NULL,
