@@ -291,6 +291,18 @@
           </div>
         </div>
 
+        <hr class="border-gray-200 dark:border-gray-600">
+
+        <!-- API Access -->
+        <div>
+          <h6 class="text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">API Access</h6>
+          <div class="flex items-center gap-3">
+            <code id="apiKeyDisplay" class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white font-mono break-all">{{.APIKey}}</code>
+            <button type="button" onclick="rotateApiKey()" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm whitespace-nowrap">Rotate Key</button>
+          </div>
+          <span id="apiKeyRotated" class="text-green-500 text-sm hidden mt-1 block">Key rotated.</span>
+        </div>
+
       </div>
     </div>
   </div>
@@ -641,6 +653,17 @@
           saved.classList.remove('hidden');
           setTimeout(function() { saved.classList.add('hidden'); }, 3000);
         }
+      });
+  }
+
+  function rotateApiKey() {
+    fetch('/api/rotate-key', { method: 'POST' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        document.getElementById('apiKeyDisplay').textContent = data.key;
+        var msg = document.getElementById('apiKeyRotated');
+        msg.classList.remove('hidden');
+        setTimeout(function() { msg.classList.add('hidden'); }, 3000);
       });
   }
 

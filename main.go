@@ -75,11 +75,12 @@ type CategoryRow struct {
 }
 
 type BoardTemplateData struct {
-	Rows                    []CategoryRow
-	Categories              []Category
-	Statuses                []Status
-	HelpdeskRefreshInterval    int
-	UnassignedRefreshInterval  int
+	Rows                      []CategoryRow
+	Categories                []Category
+	Statuses                  []Status
+	HelpdeskRefreshInterval   int
+	UnassignedRefreshInterval int
+	APIKey                    string
 }
 
 type FreshserviceTicket struct {
@@ -296,6 +297,7 @@ func main() {
 	http.HandleFunc("/api/categories", apiCategoriesHandler)
 	http.HandleFunc("/api/statuses", apiStatusesHandler)
 	http.HandleFunc("/api/settings", settingsHandler)
+	http.HandleFunc("/api/rotate-key", rotateApiKeyHandler)
 	http.HandleFunc("/helpdesk/fragment", helpdeskFragmentHandler)
 	http.HandleFunc("/unassigned/fragment", unassignedFragmentHandler)
 	http.HandleFunc("/events", sseHandler)
@@ -353,6 +355,7 @@ func runMigrations() error {
 			created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS api_key VARCHAR(64)`,
 	}
 
 	for _, m := range migrations {
@@ -369,6 +372,29 @@ func getEnv(key, def string) string {
 		return def
 	}
 	return v
+}
+
+func generateApiKey() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		log.Fatalf("Failed to generate API key: %v", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+func getUserApiKey(userID int) string {
+	var key sql.NullString
+	if err := db.QueryRow(`SELECT api_key FROM users WHERE id=$1`, userID).Scan(&key); err != nil {
+		return ""
+	}
+	if key.Valid && key.String != "" {
+		return key.String
+	}
+	newKey := generateApiKey()
+	if _, err := db.Exec(`UPDATE users SET api_key=$1 WHERE id=$2`, newKey, userID); err != nil {
+		return ""
+	}
+	return newKey
 }
 
 func getSettingInt(key string, defaultVal int) int {
@@ -629,6 +655,10 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	if session, ok := r.Context().Value(contextKeyUser).(*SessionData); ok && session != nil {
+		data.APIKey = getUserApiKey(session.UserID)
 	}
 
 	if err := tmpl.ExecuteTemplate(w, "index.html", data); err != nil {
@@ -1413,6 +1443,25 @@ func sseHandler(w http.ResponseWriter, r *http.Request) {
 
 // ---------------------------------------------------------------------------
 
+func rotateApiKeyHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	session, ok := r.Context().Value(contextKeyUser).(*SessionData)
+	if !ok || session == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	newKey := generateApiKey()
+	if _, err := db.Exec(`UPDATE users SET api_key=$1 WHERE id=$2`, newKey, session.UserID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"key": newKey})
+}
+
 func apiCardsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
@@ -1938,6 +1987,16 @@ func authMiddleware(next http.Handler) http.Handler {
 		// Public paths
 		if r.URL.Path == "/login" || r.URL.Path == "/logout" || r.URL.Path == "/favicon.ico" {
 			next.ServeHTTP(w, r)
+			return
+		}
+		// API key bypass
+		if key := r.Header.Get("X-API-Key"); key != "" {
+			var userID int
+			if err := db.QueryRow(`SELECT id FROM users WHERE api_key=$1`, key).Scan(&userID); err == nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 		session := validateSessionCookie(r)
