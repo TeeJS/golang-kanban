@@ -1016,6 +1016,8 @@ func updateOrderHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	broadcastBoardUpdate()
+
 	if _, err := w.Write([]byte("OK")); err != nil {
 		log.Printf("Error writing response: %v", err)
 	}
