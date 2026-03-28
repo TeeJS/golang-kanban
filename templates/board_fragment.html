@@ -42,7 +42,7 @@
             </button>
             {{end}}
           </div>
-          <div id="cards-{{$cat.Slug}}-{{$st.Slug}}" class="space-y-3">
+          <div id="cards-{{$cat.Slug}}-{{$st.Slug}}" data-category="{{$cat.Slug}}" data-status="{{$st.Slug}}" class="space-y-3">
             {{range .Cards}}
               {{template "card_fragment.html" .}}
             {{end}}
