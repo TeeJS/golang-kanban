@@ -362,8 +362,7 @@
       if (container._sortable) {
         container._sortable.destroy();
       }
-      var parts = container.id.replace('cards-', '').split('-');
-      var catSlug = parts[0];
+      var catSlug = container.getAttribute('data-category');
       container._sortable = new Sortable(container, {
         group: catSlug,
         animation: 150,
@@ -371,9 +370,8 @@
         filter: '.no-drag',
         onEnd: function(evt) {
           var destContainer = evt.to;
-          var destParts = destContainer.id.replace('cards-', '').split('-');
-          var destCategory = destParts[0];
-          var destStatus = destParts.slice(1).join('-');
+          var destCategory = destContainer.getAttribute('data-category');
+          var destStatus = destContainer.getAttribute('data-status');
           var destIds = Array.from(destContainer.children)
             .map(function(c) { return c.getAttribute('data-id'); })
             .filter(function(id) { return id !== null; });
@@ -386,9 +384,8 @@
 
           if (evt.from !== evt.to) {
             var originContainer = evt.from;
-            var originParts = originContainer.id.replace('cards-', '').split('-');
-            var originCategory = originParts[0];
-            var originStatus = originParts.slice(1).join('-');
+            var originCategory = originContainer.getAttribute('data-category');
+            var originStatus = originContainer.getAttribute('data-status');
             var originIds = Array.from(originContainer.children)
               .map(function(c) { return c.getAttribute('data-id'); })
               .filter(function(id) { return id !== null; });
