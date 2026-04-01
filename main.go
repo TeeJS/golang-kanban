@@ -1810,7 +1810,7 @@ func fetchRecentOpenTickets() ([]FreshserviceTicket, error) {
 	}
 
 	oneMonthAgo := time.Now().AddDate(0, -1, 0).Format("2006-01-02")
-	query := fmt.Sprintf(`status:2 AND created_at:>'%s'`, oneMonthAgo)
+	query := fmt.Sprintf(`(status:2 OR status:3 OR status:6 OR status:7) AND created_at:>'%s'`, oneMonthAgo)
 
 	params := url.Values{}
 	params.Set("query", `"`+query+`"`)
