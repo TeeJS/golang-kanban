@@ -1758,10 +1758,13 @@ func unassignedFragmentHandler(w http.ResponseWriter, r *http.Request) {
 
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+	sem := make(chan struct{}, 3)
 	for _, tt := range taskTickets {
 		wg.Add(1)
 		go func(ticketID int, subject string) {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 			tasks, err := fetchTicketTasks(ticketID)
 			if err != nil {
 				log.Printf("Task fetch error for ticket %d: %v", ticketID, err)
