@@ -1,0 +1,9 @@
+# Backup files
+*.backup-*
+
+# Environment files
+.env
+.env.*
+
+# Binary
+kanban
