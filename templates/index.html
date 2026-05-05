@@ -3,6 +3,7 @@
 <html class="h-full">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Kanban Board</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -16,6 +17,20 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.5/font/bootstrap-icons.min.css" integrity="sha512-ZnR2wlLbSbr8/c9AgLg3jQPAattCUImNsae6NHYnS9KrIwRdcY9DxFotXhNAKIKbAXlRnujIqUWoXXwqyFOeIQ==" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/2.0.4/htmx.min.js" integrity="sha512-2kIcAizYXhIn8TzUvqzEDZNuDZ+aW7yE/+f1HJHXFjQcGNfv1kqzJSTBRBSlOgp6B/KZsz1K0a3ZTqP9dnxioQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.6/Sortable.min.js" integrity="sha512-csIng5zcB+XpulRUa+ev1zKo7zRNGpEaVfNB9On1no9KYTEY/rLGAEEpvgdw6nim1WdTuihZY1eqZ31K7/fZjw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <style>
+    @media (max-width: 767px) {
+      .container { padding: 6px !important; }
+      .py-8 { padding-top: 6px !important; padding-bottom: 6px !important; }
+      .mb-8 { margin-bottom: 6px !important; }
+      .max-w-7xl { padding: 0 !important; }
+      .p-6 { padding: 8px !important; }
+      .px-6 { padding-left: 8px !important; padding-right: 8px !important; }
+      .gap-6 { gap: 6px !important; }
+      .space-y-4 > * + * { margin-top: 6px !important; }
+      .min-h-\[500px\] { min-height: 80px !important; }
+      .max-h-\[70vh\] { max-height: 60vh !important; }
+    }
+  </style>
   <style>
     .modal {
       position: fixed;
