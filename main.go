@@ -278,7 +278,7 @@ func main() {
 	tmpl = template.Must(template.New("").Funcs(funcMap).ParseGlob("templates/*.html"))
 
 	http.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
+		http.ServeFile(w, r, "static/favicon.ico")
 	})
 
 	http.HandleFunc("/login", loginHandler)
