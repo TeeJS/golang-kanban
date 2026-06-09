@@ -1,0 +1,11 @@
+FROM golang:1.24-alpine
+
+WORKDIR /app
+
+COPY . .
+
+RUN go mod tidy && go build -o kanban-mcp ./cmd/kanban-mcp
+
+EXPOSE 17809
+
+CMD ["./kanban-mcp"]

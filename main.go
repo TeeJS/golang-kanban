@@ -294,6 +294,7 @@ func main() {
 	http.HandleFunc("/status", createStatusHandler)
 	http.HandleFunc("/status/", statusRouter)
 	http.HandleFunc("/api/cards", apiCardsHandler)
+	http.HandleFunc("/api/cards/", apiCardRouter)
 	http.HandleFunc("/api/categories", apiCategoriesHandler)
 	http.HandleFunc("/api/statuses", apiStatusesHandler)
 	http.HandleFunc("/api/settings", settingsHandler)
@@ -1465,7 +1466,13 @@ func rotateApiKeyHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func apiCardsHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
+		// fall through to list below
+	case http.MethodPost:
+		apiCreateCardHandler(w, r)
+		return
+	default:
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -1543,6 +1550,253 @@ func apiStatusesHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(statuses)
+}
+
+// ---------------------------------------------------------------------------
+// JSON write endpoints for cards (POST/PATCH/DELETE under /api/cards)
+// ---------------------------------------------------------------------------
+
+type cardPayload struct {
+	Title       *string `json:"title"`
+	Description *string `json:"description"`
+	Subtasks    *string `json:"subtasks"`
+	Status      *string `json:"status"`
+	Category    *string `json:"category"`
+	CardOrder   *int    `json:"card_order"`
+	DueOn       *string `json:"due_on"` // "YYYY-MM-DD"; empty string clears the due date
+}
+
+func writeJSON(w http.ResponseWriter, status int, v interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		log.Printf("Error encoding JSON response: %v", err)
+	}
+}
+
+func writeJSONError(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+func strVal(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func parseDueOn(p *string) (sql.NullTime, error) {
+	if p == nil || *p == "" {
+		return sql.NullTime{}, nil
+	}
+	t, err := time.Parse("2006-01-02", *p)
+	if err != nil {
+		return sql.NullTime{}, fmt.Errorf("invalid due_on (expected YYYY-MM-DD): %s", *p)
+	}
+	return sql.NullTime{Time: t, Valid: true}, nil
+}
+
+func apiCreateCardHandler(w http.ResponseWriter, r *http.Request) {
+	var p cardPayload
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "Invalid JSON body: "+err.Error())
+		return
+	}
+
+	title := strVal(p.Title)
+	description := strVal(p.Description)
+	subtasks := strVal(p.Subtasks)
+
+	status := strVal(p.Status)
+	if status == "" {
+		status = "todo"
+	} else if !isValidStatus(status) {
+		writeJSONError(w, http.StatusBadRequest, "Invalid status: "+status)
+		return
+	}
+
+	category := strVal(p.Category)
+	if category == "" {
+		category = "work"
+	} else if !isValidCategory(category) {
+		writeJSONError(w, http.StatusBadRequest, "Invalid category: "+category)
+		return
+	}
+
+	if strings.TrimSpace(title) == "" && strings.TrimSpace(description) == "" && strings.TrimSpace(subtasks) == "" {
+		writeJSONError(w, http.StatusBadRequest, "Empty card not allowed")
+		return
+	}
+
+	dueOn, err := parseDueOn(p.DueOn)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var maxOrder int
+	if err := db.QueryRow(
+		`SELECT COALESCE(MAX(card_order), 0) FROM cards WHERE category=$1 AND status=$2`,
+		category, status,
+	).Scan(&maxOrder); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	maxOrder++
+
+	var newID int
+	if err := db.QueryRow(
+		`INSERT INTO cards (title, description, subtasks, status, category, card_order, due_on) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+		title, description, subtasks, status, category, maxOrder, dueOn,
+	).Scan(&newID); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	card, err := getCardByID(newID)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	broadcastBoardUpdate()
+	writeJSON(w, http.StatusCreated, card)
+}
+
+func apiCardRouter(w http.ResponseWriter, r *http.Request) {
+	idStr := strings.TrimPrefix(r.URL.Path, "/api/cards/")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		writeJSONError(w, http.StatusNotFound, "Invalid card id")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodPatch:
+		apiUpdateCardHandler(w, r, id)
+	case http.MethodDelete:
+		apiDeleteCardHandler(w, r, id)
+	default:
+		writeJSONError(w, http.StatusMethodNotAllowed, "Method Not Allowed")
+	}
+}
+
+func apiUpdateCardHandler(w http.ResponseWriter, r *http.Request, id int) {
+	card, err := getCardByID(id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			writeJSONError(w, http.StatusNotFound, "Card not found")
+		} else {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	var p cardPayload
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "Invalid JSON body: "+err.Error())
+		return
+	}
+
+	if p.Title != nil {
+		card.Title = *p.Title
+	}
+	if p.Description != nil {
+		card.Description = *p.Description
+	}
+	if p.Subtasks != nil {
+		card.Subtasks = *p.Subtasks
+	}
+
+	moved := false
+	if p.Status != nil && *p.Status != card.Status {
+		if !isValidStatus(*p.Status) {
+			writeJSONError(w, http.StatusBadRequest, "Invalid status: "+*p.Status)
+			return
+		}
+		card.Status = *p.Status
+		moved = true
+	}
+	if p.Category != nil && *p.Category != card.Category {
+		if !isValidCategory(*p.Category) {
+			writeJSONError(w, http.StatusBadRequest, "Invalid category: "+*p.Category)
+			return
+		}
+		card.Category = *p.Category
+		moved = true
+	}
+	if p.CardOrder != nil {
+		card.CardOrder = *p.CardOrder
+		moved = true
+	} else if moved {
+		// No explicit position given — place at the end of the destination column
+		var maxOrder int
+		if err := db.QueryRow(
+			`SELECT COALESCE(MAX(card_order), 0) FROM cards WHERE category=$1 AND status=$2`,
+			card.Category, card.Status,
+		).Scan(&maxOrder); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		card.CardOrder = maxOrder + 1
+	}
+
+	if p.DueOn != nil {
+		dueOn, err := parseDueOn(p.DueOn)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		card.DueOn = dueOn
+	}
+
+	if _, err := db.Exec(
+		`UPDATE cards SET title=$1, description=$2, subtasks=$3, status=$4, category=$5, card_order=$6, due_on=$7, updated_at=NOW() WHERE id=$8`,
+		card.Title, card.Description, card.Subtasks, card.Status, card.Category, card.CardOrder, card.DueOn, id,
+	); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if moved {
+		// Renormalize the destination column, same as moveCardHandler
+		if _, err := db.Exec(`
+			WITH OrderedCards AS (
+				SELECT id, ROW_NUMBER() OVER (ORDER BY card_order, id) AS new_order
+				FROM cards
+				WHERE category = $1 AND status = $2
+			)
+			UPDATE cards SET card_order = OrderedCards.new_order
+			FROM OrderedCards WHERE cards.id = OrderedCards.id
+		`, card.Category, card.Status); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	updated, err := getCardByID(id)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	broadcastBoardUpdate()
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func apiDeleteCardHandler(w http.ResponseWriter, r *http.Request, id int) {
+	res, err := db.Exec(`DELETE FROM cards WHERE id=$1`, id)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if n, raErr := res.RowsAffected(); raErr == nil && n == 0 {
+		writeJSONError(w, http.StatusNotFound, "Card not found")
+		return
+	}
+
+	broadcastBoardUpdate()
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 // ---------------------------------------------------------------------------

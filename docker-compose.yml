@@ -31,5 +31,20 @@ services:
       ADMIN_USER: admin
       ADMIN_PASS: changeme
       SESSION_SECRET: change-this-to-a-long-random-string
+  kanban-mcp:
+    build:
+      dockerfile: Dockerfile.mcp
+    ports:
+      - "17809:17809"
+    depends_on:
+      - kanban
+    environment:
+      # Where the MCP server reaches the kanban app (service name on the compose network)
+      KANBAN_URL: http://kanban:17808
+      # X-API-Key from the kanban settings panel — set before starting
+      KANBAN_API_KEY: paste-your-api-key-here
+      # Bearer token MCP clients (Claude Code / Desktop) must present — change this
+      MCP_AUTH_TOKEN: change-this-to-a-long-random-token
+      MCP_PORT: 17809
 volumes:
   postgres_data:
