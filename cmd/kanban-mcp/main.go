@@ -315,7 +315,9 @@ func main() {
 	port := getEnv("MCP_PORT", "17809")
 
 	server := buildServer(kc)
-	handler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server { return server }, nil)
+	// Stateless: don't validate Mcp-Session-Id, so container restarts never
+	// strand clients holding an old session (e.g. the mcp-remote bridge).
+	handler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true})
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
