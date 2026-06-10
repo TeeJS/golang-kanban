@@ -425,7 +425,7 @@ func getCategories() ([]Category, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var cats []Category
 	for rows.Next() {
@@ -443,7 +443,7 @@ func getStatuses() ([]Status, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var statuses []Status
 	for rows.Next() {
@@ -520,7 +520,7 @@ func buildBoardData() (*BoardTemplateData, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer cardRows.Close()
+	defer func() { _ = cardRows.Close() }()
 
 	for cardRows.Next() {
 		var c Card
@@ -1435,10 +1435,10 @@ func sseHandler(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case msg := <-ch:
-			fmt.Fprintf(w, "event: %s\ndata: {}\n\n", msg)
+			_, _ = fmt.Fprintf(w, "event: %s\ndata: {}\n\n", msg)
 			flusher.Flush()
 		case <-ticker.C:
-			fmt.Fprintf(w, ": keepalive\n\n")
+			_, _ = fmt.Fprintf(w, ": keepalive\n\n")
 			flusher.Flush()
 		}
 	}
@@ -1462,7 +1462,9 @@ func rotateApiKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"key": newKey})
+	if err := json.NewEncoder(w).Encode(map[string]string{"key": newKey}); err != nil {
+		log.Printf("Error encoding JSON response: %v", err)
+	}
 }
 
 func apiCardsHandler(w http.ResponseWriter, r *http.Request) {
@@ -1482,7 +1484,7 @@ func apiCardsHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	cards := []Card{}
 	for rows.Next() {
@@ -1495,7 +1497,9 @@ func apiCardsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(cards)
+	if err := json.NewEncoder(w).Encode(cards); err != nil {
+		log.Printf("Error encoding JSON response: %v", err)
+	}
 }
 
 func apiCategoriesHandler(w http.ResponseWriter, r *http.Request) {
@@ -1509,7 +1513,7 @@ func apiCategoriesHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	cats := []Category{}
 	for rows.Next() {
@@ -1522,7 +1526,9 @@ func apiCategoriesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(cats)
+	if err := json.NewEncoder(w).Encode(cats); err != nil {
+		log.Printf("Error encoding JSON response: %v", err)
+	}
 }
 
 func apiStatusesHandler(w http.ResponseWriter, r *http.Request) {
@@ -1536,7 +1542,7 @@ func apiStatusesHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	statuses := []Status{}
 	for rows.Next() {
@@ -1549,7 +1555,9 @@ func apiStatusesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(statuses)
+	if err := json.NewEncoder(w).Encode(statuses); err != nil {
+		log.Printf("Error encoding JSON response: %v", err)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -1843,7 +1851,7 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 
 func fetchFreshserviceTickets() ([]FreshserviceTicket, error) {
 	if fsAPIKey == "" || fsDomain == "" {
-		return nil, fmt.Errorf("Freshservice not configured")
+		return nil, fmt.Errorf("freshservice not configured")
 	}
 
 	sixMonthsAgo := time.Now().AddDate(0, -6, 0).Format("2006-01-02")
@@ -1869,10 +1877,10 @@ func fetchFreshserviceTickets() ([]FreshserviceTicket, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Freshservice API returned %d", resp.StatusCode)
+		return nil, fmt.Errorf("freshservice API returned %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -1936,7 +1944,7 @@ func helpdeskFragmentHandler(w http.ResponseWriter, r *http.Request) {
 
 func fetchUnassignedTickets() ([]FreshserviceTicket, error) {
 	if fsAPIKey == "" || fsDomain == "" {
-		return nil, fmt.Errorf("Freshservice not configured")
+		return nil, fmt.Errorf("freshservice not configured")
 	}
 
 	sixMonthsAgo := time.Now().AddDate(0, -6, 0).Format("2006-01-02")
@@ -1962,10 +1970,10 @@ func fetchUnassignedTickets() ([]FreshserviceTicket, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Freshservice API returned %d", resp.StatusCode)
+		return nil, fmt.Errorf("freshservice API returned %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -2060,7 +2068,7 @@ func unassignedFragmentHandler(w http.ResponseWriter, r *http.Request) {
 
 func fetchRecentOpenTickets() ([]FreshserviceTicket, error) {
 	if fsAPIKey == "" || fsDomain == "" {
-		return nil, fmt.Errorf("Freshservice not configured")
+		return nil, fmt.Errorf("freshservice not configured")
 	}
 
 	oneMonthAgo := time.Now().AddDate(0, -1, 0).Format("2006-01-02")
@@ -2083,10 +2091,10 @@ func fetchRecentOpenTickets() ([]FreshserviceTicket, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Freshservice API returned %d", resp.StatusCode)
+		return nil, fmt.Errorf("freshservice API returned %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -2104,7 +2112,7 @@ func fetchRecentOpenTickets() ([]FreshserviceTicket, error) {
 
 func fetchTicketTasks(ticketID int) ([]TicketTask, error) {
 	if fsAPIKey == "" || fsDomain == "" {
-		return nil, fmt.Errorf("Freshservice not configured")
+		return nil, fmt.Errorf("freshservice not configured")
 	}
 
 	apiURL := fmt.Sprintf("https://%s/api/v2/tickets/%d/tasks", fsDomain, ticketID)
@@ -2120,10 +2128,10 @@ func fetchTicketTasks(ticketID int) ([]TicketTask, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Freshservice tasks API returned %d", resp.StatusCode)
+		return nil, fmt.Errorf("freshservice tasks API returned %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -2275,7 +2283,9 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/", http.StatusSeeOther)
 			return
 		}
-		tmpl.ExecuteTemplate(w, "login.html", nil)
+		if err := tmpl.ExecuteTemplate(w, "login.html", nil); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -2291,12 +2301,16 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	err := db.QueryRow(`SELECT id, username, password_hash FROM users WHERE username=$1`, username).
 		Scan(&user.ID, &user.Username, &user.PasswordHash)
 	if err != nil {
-		tmpl.ExecuteTemplate(w, "login.html", map[string]string{"Error": "Invalid username or password."})
+		if err := tmpl.ExecuteTemplate(w, "login.html", map[string]string{"Error": "Invalid username or password."}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		tmpl.ExecuteTemplate(w, "login.html", map[string]string{"Error": "Invalid username or password."})
+		if err := tmpl.ExecuteTemplate(w, "login.html", map[string]string{"Error": "Invalid username or password."}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 

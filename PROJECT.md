@@ -1,7 +1,13 @@
 # Project Charter: Kanban MCP Server
 
 **Date:** 2026-06-09
-**Status:** Awaiting sign-off
+**Status:** COMPLETE — deployed and verified 2026-06-09. MCP server live at
+http://192.168.1.25:17809/ (Unraid container `kanban-mcp`, image
+ghcr.io/teejs/golang-kanban-mcp:latest). All §5 criteria passed: JSON endpoints
+authenticated by X-API-Key; create/move/update/delete verified through MCP tools
+with live SSE board updates and 401 on bad/missing token. Registered in Claude
+Code user config (`claude mcp list` → kanban ✓ Connected). Status slugs are
+unhyphenated (e.g. `inprogress`, `needsfeedback`).
 
 ## 1. What is the one thing this must do?
 
