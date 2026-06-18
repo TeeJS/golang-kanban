@@ -1,0 +1,663 @@
+{{define "kiosk.html"}}
+<!DOCTYPE html>
+<html class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1920, initial-scale=1.0">
+  <title>Kanban — Kiosk</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class', theme: { extend: {} } }
+  </script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.5/font/bootstrap-icons.min.css" integrity="sha512-ZnR2wlLbSbr8/c9AgLg3jQPAattCUImNsae6NHYnS9KrIwRdcY9DxFotXhNAKIKbAXlRnujIqUWoXXwqyFOeIQ==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/2.0.4/htmx.min.js" integrity="sha512-2kIcAizYXhIn8TzUvqzEDZNuDZ+aW7yE/+f1HJHXFjQcGNfv1kqzJSTBRBSlOgp6B/KZsz1K0a3ZTqP9dnxioQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.6/Sortable.min.js" integrity="sha512-csIng5zcB+XpulRUa+ev1zKo7zRNGpEaVfNB9On1no9KYTEY/rLGAEEpvgdw6nim1WdTuihZY1eqZ31K7/fZjw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <style>
+    html, body { height: 100%; overflow: hidden; margin: 0; }
+
+    .kiosk-section { display: none; position: absolute; inset: 0; }
+    .kiosk-section.active { display: flex; }
+
+    .rail-btn {
+      display: flex; align-items: center; justify-content: center; text-align: center;
+      font-weight: 600; font-size: 0.8rem; line-height: 1.2;
+      border-radius: 0.5rem; padding: 0.5rem 0.25rem;
+      cursor: pointer; transition: background 0.15s, color 0.15s;
+      user-select: none; border: none; width: 100%;
+    }
+    .rail-btn.section-btn { flex: 1; min-height: 3.5rem; }
+    .rail-btn.ctrl-btn { flex: none; padding: 0.6rem; }
+    .rail-btn.active { background: #3b82f6; color: white; }
+    .rail-btn:not(.active) { background: #374151; color: #d1d5db; }
+    .rail-btn:not(.active):hover, .rail-btn:not(.active):active { background: #4b5563; color: white; }
+    .rail-btn.add-btn { background: #1d4ed8; color: white; }
+    .rail-btn.add-btn:hover { background: #2563eb; }
+
+    /* Modal */
+    .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.6); display: none; justify-content: center;
+      align-items: center; z-index: 1000; }
+    .modal.show { display: flex; }
+    .modal-dialog { max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto; }
+    .modal-content { background: white; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+    .dark .modal-content { background: #374151; color: white; }
+
+    /* Strip section chrome from helpdesk/unassigned HTMX fragments */
+    #unassigned-kiosk-pane section { background: transparent !important; box-shadow: none !important; border-radius: 0 !important; }
+    #unassigned-kiosk-pane section > div:first-child { display: none !important; }
+    #unassigned-kiosk-pane [id^="row-"] { display: block !important; padding: 0.25rem 0 !important; }
+    #helpdesk-kiosk-pane section { background: transparent !important; box-shadow: none !important; border-radius: 0 !important; }
+    #helpdesk-kiosk-pane section > div:first-child { display: none !important; }
+    #helpdesk-kiosk-pane [id^="row-"] { display: block !important; padding: 0.25rem 0 !important; }
+  </style>
+</head>
+
+<body class="bg-gray-900 dark:bg-gray-950 text-gray-100 flex" style="height:100vh;overflow:hidden">
+
+  <!-- ═══════════════════════════════════════════════════════════
+       LEFT RAIL — category section buttons
+  ═══════════════════════════════════════════════════════════ -->
+  <aside class="flex-none flex flex-col gap-2 p-2 bg-gray-900 dark:bg-gray-950 border-r border-gray-700" style="width:140px">
+    {{range .Categories}}
+    <button type="button" id="rail-btn-{{.Slug}}" onclick="showKioskSection('{{.Slug}}')"
+            class="rail-btn section-btn">{{.Name}}</button>
+    {{end}}
+  </aside>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       CENTER — one section at a time
+  ═══════════════════════════════════════════════════════════ -->
+  <main class="flex-1 relative overflow-hidden bg-gray-800 dark:bg-gray-800">
+
+    <!-- One div per board category -->
+    {{range .Rows}}
+    {{$cat := .Category}}
+    <div id="kiosk-section-{{$cat.Slug}}" class="kiosk-section gap-2 p-2">
+      {{range .Columns}}
+      {{$st := .Status}}
+      <div class="flex flex-col bg-gray-900 dark:bg-gray-900 rounded-xl overflow-hidden" style="flex:1;min-width:0">
+        <div class="flex-none flex items-center justify-between px-3 py-2 border-b border-gray-700">
+          <h3 class="text-sm font-bold text-gray-100 truncate">
+            {{if eq $st.Slug "tomorrow"}}<i class="bi bi-calendar-day text-orange-400 mr-1"></i>{{end}}
+            {{if eq $st.Slug "todo"}}<i class="bi bi-clock text-yellow-400 mr-1"></i>{{end}}
+            {{if eq $st.Slug "inprogress"}}<i class="bi bi-arrow-repeat text-blue-400 mr-1"></i>{{end}}
+            {{if eq $st.Slug "needsfeedback"}}<i class="bi bi-chat-left-dots text-purple-400 mr-1"></i>{{end}}
+            {{if eq $st.Slug "done"}}<i class="bi bi-check-circle text-green-400 mr-1"></i>{{end}}
+            {{$st.Name}}
+          </h3>
+          {{if eq $st.Slug "done"}}
+          <button type="button" onclick="clearDoneColumn('{{$cat.Slug}}')" title="Clear Done"
+                  class="text-red-400 hover:text-red-300 transition-colors flex-none ml-1">
+            <i class="bi bi-trash text-sm"></i>
+          </button>
+          {{end}}
+        </div>
+        <div id="cards-{{$cat.Slug}}-{{$st.Slug}}"
+             data-category="{{$cat.Slug}}"
+             data-status="{{$st.Slug}}"
+             class="flex-1 overflow-y-auto p-2 space-y-2">
+          {{range .Cards}}
+            {{template "card_fragment.html" .}}
+          {{end}}
+        </div>
+      </div>
+      {{end}}
+    </div>
+    {{end}}
+
+    <!-- Helpdesk + Unassigned combined section -->
+    <div id="kiosk-section-helpdesk" class="kiosk-section gap-2 p-2">
+      <!-- Unassigned column -->
+      <div class="flex flex-col bg-gray-900 dark:bg-gray-900 rounded-xl overflow-hidden" style="width:320px;flex:none">
+        <div class="flex-none px-3 py-2 border-b border-gray-700">
+          <h3 class="text-sm font-bold text-gray-100">Unassigned</h3>
+        </div>
+        <div id="unassigned-kiosk-pane" class="flex-1 overflow-y-auto p-2"
+             hx-get="/unassigned/fragment"
+             hx-trigger="load, every {{.UnassignedRefreshInterval}}s, unassignedRefresh from:body"
+             hx-swap="innerHTML">
+        </div>
+      </div>
+      <!-- Helpdesk columns -->
+      <div class="flex-1 flex flex-col bg-gray-900 dark:bg-gray-900 rounded-xl overflow-hidden">
+        <div class="flex-none px-3 py-2 border-b border-gray-700">
+          <h3 class="text-sm font-bold text-gray-100">Helpdesk</h3>
+        </div>
+        <div id="helpdesk-kiosk-pane" class="flex-1 overflow-y-auto p-2"
+             hx-get="/helpdesk/fragment"
+             hx-trigger="load, every {{.HelpdeskRefreshInterval}}s, helpdeskRefresh from:body"
+             hx-swap="innerHTML">
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       RIGHT RAIL — helpdesk button + controls
+  ═══════════════════════════════════════════════════════════ -->
+  <aside class="flex-none flex flex-col gap-2 p-2 bg-gray-900 dark:bg-gray-950 border-l border-gray-700" style="width:140px">
+    <button type="button" id="rail-btn-helpdesk" onclick="showKioskSection('helpdesk')"
+            class="rail-btn section-btn">Helpdesk /<br>Unassigned</button>
+    <div class="flex-1"></div>
+    <button type="button" onclick="showModal('addCardModal')"
+            class="rail-btn ctrl-btn add-btn"><i class="bi bi-plus text-lg"></i><br>Add Card</button>
+    <button type="button" onclick="showModal('settingsModal')"
+            class="rail-btn ctrl-btn"><i class="bi bi-gear text-lg"></i><br>Settings</button>
+    <button type="button" id="darkModeToggle"
+            class="rail-btn ctrl-btn">
+      <i class="bi bi-sun text-lg dark:hidden"></i>
+      <i class="bi bi-moon text-lg hidden dark:inline"></i>
+    </button>
+  </aside>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       ADD CARD MODAL
+  ═══════════════════════════════════════════════════════════ -->
+  <div class="modal" id="addCardModal">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <form id="addCardForm" hx-post="/card" hx-target="#cards-work-todo" hx-swap="beforeend" onsubmit="return prepareSubtasks(this)">
+          <div class="p-6 border-b border-gray-200 dark:border-gray-600">
+            <div class="flex justify-between items-center">
+              <h5 class="text-xl font-bold text-gray-900 dark:text-white">Add New Card</h5>
+              <button type="button" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" onclick="hideModal('addCardModal')">
+                <i class="bi bi-x text-2xl"></i>
+              </button>
+            </div>
+          </div>
+          <div class="p-6">
+            <input type="hidden" name="status" value="todo">
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Board</label>
+              <select name="category" id="addCardCategory" onchange="updateAddCardTarget()"
+                      class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                {{range .Categories}}
+                <option value="{{.Slug}}">{{.Name}}</option>
+                {{end}}
+              </select>
+            </div>
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Title</label>
+              <input type="text" name="title" placeholder="Card Title" required
+                     class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+            </div>
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Description</label>
+              <textarea name="description" placeholder="Description" rows="3"
+                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"></textarea>
+            </div>
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Subtasks</label>
+              <div class="subtasks-container space-y-2"></div>
+              <button type="button" class="mt-2 bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm add-subtask-btn">
+                <i class="bi bi-plus mr-1"></i>Add Subtask
+              </button>
+              <input type="hidden" name="subtasks" class="subtasks-hidden">
+            </div>
+          </div>
+          <div class="p-6 border-t border-gray-200 dark:border-gray-600 flex justify-end space-x-3">
+            <button type="button" onclick="hideModal('addCardModal')"
+                    class="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 rounded-lg">Cancel</button>
+            <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg">Add Card</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- EDIT CARD MODAL -->
+  <div class="modal" id="editCardModal">
+    <div class="modal-dialog">
+      <div class="modal-content" id="editCardModalContent"></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       SETTINGS MODAL
+  ═══════════════════════════════════════════════════════════ -->
+  <div class="modal" id="settingsModal">
+    <div class="modal-dialog" style="max-width:640px">
+      <div class="modal-content">
+        <div class="p-6 border-b border-gray-200 dark:border-gray-600">
+          <div class="flex justify-between items-center">
+            <h5 class="text-xl font-bold text-gray-900 dark:text-white">Board Settings</h5>
+            <button type="button" onclick="hideModal('settingsModal')" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+              <i class="bi bi-x text-2xl"></i>
+            </button>
+          </div>
+        </div>
+        <div class="p-6 space-y-6">
+          <div>
+            <h6 class="text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">Rows</h6>
+            <ul id="settings-rows-list" class="space-y-2 mb-3">
+              {{range .Categories}}
+              <li class="flex items-center gap-2 bg-gray-50 dark:bg-gray-700 rounded-lg px-3 py-2" data-slug="{{.Slug}}">
+                {{if not .Locked}}
+                <i class="bi bi-grip-vertical text-gray-400 cursor-grab settings-drag-handle"></i>
+                {{else}}
+                <i class="bi bi-lock text-gray-300 dark:text-gray-500 text-sm"></i>
+                {{end}}
+                <span class="flex-1 text-sm text-gray-800 dark:text-gray-200">{{.Name}}</span>
+                {{if not .Locked}}
+                <button type="button" onclick="promptRenameCategory('{{.Slug}}', '{{.Name}}')" class="text-gray-400 hover:text-blue-600 transition-colors" title="Rename"><i class="bi bi-pencil text-sm"></i></button>
+                <button type="button" onclick="promptDeleteCategory('{{.Slug}}', '{{.Name}}')" class="text-gray-400 hover:text-red-600 transition-colors" title="Delete"><i class="bi bi-trash text-sm"></i></button>
+                {{end}}
+              </li>
+              {{end}}
+            </ul>
+            <form onsubmit="submitAddCategory(event)" class="flex gap-2">
+              <input type="text" id="newCategoryName" placeholder="New row name"
+                     class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500">
+              <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm">Add</button>
+            </form>
+          </div>
+          <hr class="border-gray-200 dark:border-gray-600">
+          <div>
+            <h6 class="text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">Columns</h6>
+            <ul id="settings-cols-list" class="space-y-2 mb-3">
+              {{range .Statuses}}
+              <li class="flex items-center gap-2 bg-gray-50 dark:bg-gray-700 rounded-lg px-3 py-2" data-slug="{{.Slug}}">
+                {{if not .Locked}}
+                <i class="bi bi-grip-vertical text-gray-400 cursor-grab settings-drag-handle"></i>
+                {{else}}
+                <i class="bi bi-lock text-gray-300 dark:text-gray-500 text-sm"></i>
+                {{end}}
+                <span class="flex-1 text-sm text-gray-800 dark:text-gray-200">{{.Name}}</span>
+                {{if not .Locked}}
+                <button type="button" onclick="promptRenameStatus('{{.Slug}}', '{{.Name}}')" class="text-gray-400 hover:text-blue-600 transition-colors" title="Rename"><i class="bi bi-pencil text-sm"></i></button>
+                <button type="button" onclick="promptDeleteStatus('{{.Slug}}', '{{.Name}}')" class="text-gray-400 hover:text-red-600 transition-colors" title="Delete"><i class="bi bi-trash text-sm"></i></button>
+                {{end}}
+              </li>
+              {{end}}
+            </ul>
+            <form onsubmit="submitAddStatus(event)" class="flex gap-2">
+              <input type="text" id="newStatusName" placeholder="New column name"
+                     class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500">
+              <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm">Add</button>
+            </form>
+          </div>
+          <hr class="border-gray-200 dark:border-gray-600">
+          <div>
+            <h6 class="text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-3">API Access</h6>
+            <div class="flex items-center gap-3">
+              <code id="apiKeyDisplay" class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white font-mono break-all">{{.APIKey}}</code>
+              <button type="button" onclick="rotateApiKey()" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm whitespace-nowrap">Rotate Key</button>
+            </div>
+            <span id="apiKeyRotated" class="text-green-500 text-sm hidden mt-1 block">Key rotated.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DELETE WITH CARDS MODAL -->
+  <div class="modal" id="deleteWithCardsModal">
+    <div class="modal-dialog" style="max-width:400px">
+      <div class="modal-content p-6 space-y-4">
+        <h5 class="text-lg font-bold text-gray-900 dark:text-white" id="deleteWithCardsTitle">Move cards before deleting</h5>
+        <p class="text-sm text-gray-600 dark:text-gray-300" id="deleteWithCardsMsg"></p>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Move cards to:</label>
+          <select id="deleteWithCardsMoveTo" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"></select>
+        </div>
+        <div class="flex justify-end gap-3 pt-2">
+          <button type="button" onclick="hideModal('deleteWithCardsModal')"
+                  class="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 rounded-lg text-sm">Cancel</button>
+          <button type="button" id="deleteWithCardsConfirm"
+                  class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm">Move &amp; Delete</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // ---------------------------------------------------------------------------
+  // Forward X-API-Key on all HTMX requests (belt-and-suspenders; session cookie
+  // is the primary mechanism set server-side on kiosk page load)
+  // ---------------------------------------------------------------------------
+  {{if .APIKey}}
+  document.body.addEventListener('htmx:configRequest', function(evt) {
+    evt.detail.headers['X-API-Key'] = '{{.APIKey}}';
+  });
+  {{end}}
+
+  // ---------------------------------------------------------------------------
+  // Section switching
+  // ---------------------------------------------------------------------------
+  var _activeSection = null;
+
+  function showKioskSection(slug) {
+    document.querySelectorAll('.kiosk-section').forEach(function(el) {
+      el.classList.remove('active');
+    });
+    document.querySelectorAll('.rail-btn[id^="rail-btn-"]').forEach(function(btn) {
+      btn.classList.remove('active');
+    });
+    var section = document.getElementById('kiosk-section-' + slug);
+    if (section) section.classList.add('active');
+    var btn = document.getElementById('rail-btn-' + slug);
+    if (btn) btn.classList.add('active');
+    _activeSection = slug;
+    try { localStorage.setItem('kioskSection', slug); } catch(e) {}
+  }
+
+  // ---------------------------------------------------------------------------
+  // Board reload (called on SSE board-updated event)
+  // ---------------------------------------------------------------------------
+  function reloadKiosk() {
+    fetch('/board')
+      .then(function(r) { return r.text(); })
+      .then(function(html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        document.querySelectorAll('[id^="cards-"]').forEach(function(el) {
+          var fresh = doc.getElementById(el.id);
+          if (fresh) el.innerHTML = fresh.innerHTML;
+        });
+        initSortable();
+        initCardMinimize();
+      });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Dark mode
+  // ---------------------------------------------------------------------------
+  function initDarkMode() {
+    var toggle = document.getElementById('darkModeToggle');
+    var html = document.documentElement;
+    var saved = localStorage.getItem('theme');
+    if (saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      html.classList.add('dark');
+    }
+    toggle.addEventListener('click', function() {
+      html.classList.toggle('dark');
+      localStorage.setItem('theme', html.classList.contains('dark') ? 'dark' : 'light');
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Modals
+  // ---------------------------------------------------------------------------
+  function showModal(id) { document.getElementById(id).classList.add('show'); }
+  function hideModal(id) { document.getElementById(id).classList.remove('show'); }
+  document.addEventListener('click', function(e) {
+    if (e.target.classList.contains('modal')) e.target.classList.remove('show');
+  });
+
+  // ---------------------------------------------------------------------------
+  // Add card target
+  // ---------------------------------------------------------------------------
+  function updateAddCardTarget() {
+    var form = document.getElementById('addCardForm');
+    var category = document.getElementById('addCardCategory').value;
+    form.setAttribute('hx-target', '#cards-' + category + '-todo');
+    htmx.process(form);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Clear done column
+  // ---------------------------------------------------------------------------
+  function clearDoneColumn(category) {
+    if (!confirm('Delete all cards in Done for this row?')) return;
+    var doneContainer = document.getElementById('cards-' + category + '-done');
+    if (!doneContainer) return;
+    var ids = Array.from(doneContainer.children)
+      .map(function(c) { return c.getAttribute('data-id'); })
+      .filter(function(id) { return id !== null; })
+      .map(Number);
+    Promise.all(ids.map(function(cardId) {
+      return fetch('/card/' + cardId + '/delete', { method: 'POST' });
+    })).then(function() { doneContainer.innerHTML = ''; });
+  }
+
+  // ---------------------------------------------------------------------------
+  // SortableJS
+  // ---------------------------------------------------------------------------
+  function initSortable() {
+    document.querySelectorAll('[id^="cards-"]').forEach(function(container) {
+      if (container._sortable) container._sortable.destroy();
+      var catSlug = container.getAttribute('data-category');
+      container._sortable = new Sortable(container, {
+        group: catSlug,
+        animation: 150,
+        filter: '.no-drag',
+        onEnd: function(evt) {
+          var dest = evt.to;
+          var destIds = Array.from(dest.children)
+            .map(function(c) { return c.getAttribute('data-id'); })
+            .filter(function(id) { return id !== null; });
+          fetch('/card/order', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ category: dest.getAttribute('data-category'), status: dest.getAttribute('data-status'), order: destIds.map(Number) })
+          });
+          if (evt.from !== evt.to) {
+            var orig = evt.from;
+            var origIds = Array.from(orig.children)
+              .map(function(c) { return c.getAttribute('data-id'); })
+              .filter(function(id) { return id !== null; });
+            fetch('/card/order', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ category: orig.getAttribute('data-category'), status: orig.getAttribute('data-status'), order: origIds.map(Number) })
+            });
+          }
+        }
+      });
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Settings sortable
+  // ---------------------------------------------------------------------------
+  function initSettingsSortable() {
+    var rowsList = document.getElementById('settings-rows-list');
+    if (rowsList && !rowsList._sortable) {
+      rowsList._sortable = new Sortable(rowsList, {
+        handle: '.settings-drag-handle', animation: 150,
+        onEnd: function() {
+          var order = Array.from(rowsList.children).map(function(li) { return li.getAttribute('data-slug'); });
+          fetch('/category/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order: order }) })
+            .then(function() { location.reload(); });
+        }
+      });
+    }
+    var colsList = document.getElementById('settings-cols-list');
+    if (colsList && !colsList._sortable) {
+      colsList._sortable = new Sortable(colsList, {
+        handle: '.settings-drag-handle', animation: 150,
+        onEnd: function() {
+          var order = Array.from(colsList.children).map(function(li) { return li.getAttribute('data-slug'); });
+          fetch('/status/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order: order }) })
+            .then(function() { location.reload(); });
+        }
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Settings: add/rename/delete category & status
+  // ---------------------------------------------------------------------------
+  function submitAddCategory(e) {
+    e.preventDefault();
+    var input = document.getElementById('newCategoryName');
+    var name = input.value.trim(); if (!name) return;
+    var fd = new FormData(); fd.append('name', name);
+    fetch('/category', { method: 'POST', body: fd }).then(function() { input.value = ''; location.reload(); });
+  }
+  function submitAddStatus(e) {
+    e.preventDefault();
+    var input = document.getElementById('newStatusName');
+    var name = input.value.trim(); if (!name) return;
+    var fd = new FormData(); fd.append('name', name);
+    fetch('/status', { method: 'POST', body: fd }).then(function() { input.value = ''; location.reload(); });
+  }
+  function promptRenameCategory(slug, currentName) {
+    var name = prompt('Rename row:', currentName);
+    if (!name || !name.trim()) return;
+    var fd = new FormData(); fd.append('name', name.trim());
+    fetch('/category/' + slug + '/rename', { method: 'POST', body: fd }).then(function() { location.reload(); });
+  }
+  function promptRenameStatus(slug, currentName) {
+    var name = prompt('Rename column:', currentName);
+    if (!name || !name.trim()) return;
+    var fd = new FormData(); fd.append('name', name.trim());
+    fetch('/status/' + slug + '/rename', { method: 'POST', body: fd }).then(function() { location.reload(); });
+  }
+  function promptDeleteCategory(slug, name) {
+    fetch('/category/' + slug + '/delete', { method: 'POST', body: new FormData() })
+      .then(function(r) {
+        if (r.ok) { location.reload(); return; }
+        if (r.status === 409) {
+          r.json().then(function(data) { showDeleteWithCardsModal('Row "' + name + '" has ' + data.count + ' card(s). Move them to another row before deleting.', 'category', slug, name); });
+        }
+      });
+  }
+  function promptDeleteStatus(slug, name) {
+    fetch('/status/' + slug + '/delete', { method: 'POST', body: new FormData() })
+      .then(function(r) {
+        if (r.ok) { location.reload(); return; }
+        if (r.status === 409) {
+          r.json().then(function(data) { showDeleteWithCardsModal('Column "' + name + '" has ' + data.count + ' card(s). Move them to another column before deleting.', 'status', slug, name); });
+        }
+      });
+  }
+  function showDeleteWithCardsModal(msg, type, slug, name) {
+    document.getElementById('deleteWithCardsMsg').textContent = msg;
+    var select = document.getElementById('deleteWithCardsMoveTo');
+    select.innerHTML = '';
+    var listId = type === 'category' ? 'settings-rows-list' : 'settings-cols-list';
+    document.getElementById(listId).querySelectorAll('li[data-slug]').forEach(function(li) {
+      if (li.getAttribute('data-slug') === slug) return;
+      var opt = document.createElement('option');
+      opt.value = li.getAttribute('data-slug');
+      opt.textContent = li.querySelector('span').textContent;
+      select.appendChild(opt);
+    });
+    document.getElementById('deleteWithCardsConfirm').onclick = function() {
+      var fd = new FormData(); fd.append('move_to', select.value);
+      var url = type === 'category' ? '/category/' + slug + '/delete' : '/status/' + slug + '/delete';
+      fetch(url, { method: 'POST', body: fd }).then(function() { hideModal('deleteWithCardsModal'); location.reload(); });
+    };
+    hideModal('settingsModal');
+    showModal('deleteWithCardsModal');
+  }
+  function rotateApiKey() {
+    fetch('/api/rotate-key', { method: 'POST' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        document.getElementById('apiKeyDisplay').textContent = data.key;
+        var msg = document.getElementById('apiKeyRotated');
+        msg.classList.remove('hidden');
+        setTimeout(function() { msg.classList.add('hidden'); }, 3000);
+      });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Subtasks
+  // ---------------------------------------------------------------------------
+  function initSubtasks(container) {
+    container.addEventListener('click', function(e) {
+      var btn = e.target.closest('.remove-subtask-btn');
+      if (btn && container.contains(btn)) btn.closest('.subtask-row').remove();
+    });
+    var form = container.closest('form');
+    if (form) {
+      form.querySelectorAll('.add-subtask-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var row = document.createElement('div');
+          row.className = 'subtask-row flex items-center space-x-2 mb-2';
+          row.innerHTML = '<input type="checkbox" class="subtask-complete w-4 h-4 text-blue-600 rounded focus:ring-blue-500"><input type="text" class="subtask-text flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm" placeholder="Subtask description"><button type="button" class="remove-subtask-btn text-red-500 hover:text-red-700 p-1"><i class="bi bi-x text-lg"></i></button>';
+          container.appendChild(row);
+        });
+      });
+    }
+  }
+  function prepareSubtasks(form) {
+    var container = form.querySelector('.subtasks-container');
+    var hidden = form.querySelector('.subtasks-hidden');
+    var subtasks = [];
+    container.querySelectorAll('.subtask-row').forEach(function(row) {
+      var complete = row.querySelector('.subtask-complete').checked ? '1' : '0';
+      var text = row.querySelector('.subtask-text').value.trim();
+      if (text !== '') subtasks.push(complete + '|' + text);
+    });
+    hidden.value = subtasks.join('\n');
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Card minimize on load
+  // ---------------------------------------------------------------------------
+  function initCardMinimize() {
+    document.querySelectorAll('[aria-label="Toggle card"]').forEach(function(btn) {
+      var card = btn.closest('[data-id]');
+      if (!card) return;
+      var body = card.querySelector('.card-body');
+      var icon = btn.querySelector('i');
+      if (!body || !icon) return;
+      body.classList.add('hidden');
+      icon.classList.remove('bi-dash-square');
+      icon.classList.add('bi-plus-square');
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // HTMX events
+  // ---------------------------------------------------------------------------
+  document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.id && evt.detail.target.id.startsWith('cards-')) {
+      hideModal('addCardModal');
+      var form = document.getElementById('addCardForm');
+      if (form) {
+        form.reset();
+        updateAddCardTarget();
+        var container = form.querySelector('.subtasks-container');
+        if (container) container.innerHTML = '';
+      }
+    }
+    if (evt.detail.target.id === 'editCardModalContent') {
+      showModal('editCardModal');
+      var container = document.getElementById('editCardModalContent').querySelector('.subtasks-container');
+      if (container) initSubtasks(container);
+    }
+    if (evt.detail.target && evt.detail.target.id && evt.detail.target.id.startsWith('card-')) {
+      hideModal('editCardModal');
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Init
+  // ---------------------------------------------------------------------------
+  document.addEventListener('DOMContentLoaded', function() {
+    initDarkMode();
+    updateAddCardTarget();
+    initSortable();
+    initSettingsSortable();
+    initCardMinimize();
+
+    // Restore last active section, or default to first category button
+    var lastSection = null;
+    try { lastSection = localStorage.getItem('kioskSection'); } catch(e) {}
+    if (lastSection && document.getElementById('kiosk-section-' + lastSection)) {
+      showKioskSection(lastSection);
+    } else {
+      var firstBtn = document.querySelector('.rail-btn.section-btn');
+      if (firstBtn) showKioskSection(firstBtn.id.replace('rail-btn-', ''));
+    }
+
+    // SSE board updates
+    var evtSource = new EventSource('/events');
+    evtSource.addEventListener('board-updated', function() { reloadKiosk(); });
+
+    // Subtask init for add card form
+    var addForm = document.getElementById('addCardForm');
+    if (addForm) {
+      var container = addForm.querySelector('.subtasks-container');
+      if (container) initSubtasks(container);
+    }
+  });
+</script>
+</body>
+</html>
+{{end}}

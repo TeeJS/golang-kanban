@@ -662,7 +662,22 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 		data.APIKey = getUserApiKey(session.UserID)
 	}
 
-	if err := tmpl.ExecuteTemplate(w, "index.html", data); err != nil {
+	templateName := "index.html"
+	if r.URL.Query().Get("view") == "kiosk" {
+		templateName = "kiosk.html"
+		// When the kiosk page is loaded via X-API-Key header (e.g. a dashboard widget),
+		// issue a session cookie so all subsequent HTMX/fetch/SSE requests from the page
+		// are authenticated without needing the header on every call.
+		if r.Header.Get("X-API-Key") != "" {
+			if session, ok := r.Context().Value(contextKeyUser).(*SessionData); ok && session != nil {
+				if cookie, err := createSessionCookie(session.UserID, session.Username); err == nil {
+					http.SetCookie(w, cookie)
+				}
+			}
+		}
+	}
+
+	if err := tmpl.ExecuteTemplate(w, templateName, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -2259,8 +2274,14 @@ func authMiddleware(next http.Handler) http.Handler {
 		// API key bypass
 		if key := r.Header.Get("X-API-Key"); key != "" {
 			var userID int
-			if err := db.QueryRow(`SELECT id FROM users WHERE api_key=$1`, key).Scan(&userID); err == nil {
-				next.ServeHTTP(w, r)
+			var username string
+			if err := db.QueryRow(`SELECT id, username FROM users WHERE api_key=$1`, key).Scan(&userID, &username); err == nil {
+				ctx := context.WithValue(r.Context(), contextKeyUser, &SessionData{
+					UserID:   userID,
+					Username: username,
+					Expires:  time.Now().Add(24 * time.Hour).Unix(),
+				})
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
