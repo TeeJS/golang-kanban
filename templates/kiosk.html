@@ -605,7 +605,15 @@
   // ---------------------------------------------------------------------------
   // HTMX events
   // ---------------------------------------------------------------------------
+  // Strip target="_blank" from links inside the helpdesk/unassigned panes so
+  // they navigate in the same window (kiosk browsers typically block new tabs).
   document.body.addEventListener('htmx:afterSwap', function(evt) {
+    var id = evt.detail.target && evt.detail.target.id;
+    if (id === 'unassigned-kiosk-pane' || id === 'helpdesk-kiosk-pane') {
+      evt.detail.target.querySelectorAll('a[target="_blank"]').forEach(function(a) {
+        a.removeAttribute('target');
+      });
+    }
     if (evt.detail.target.id && evt.detail.target.id.startsWith('cards-')) {
       hideModal('addCardModal');
       var form = document.getElementById('addCardForm');
