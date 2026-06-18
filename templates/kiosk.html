@@ -613,6 +613,17 @@
       evt.detail.target.querySelectorAll('a[target="_blank"]').forEach(function(a) {
         a.removeAttribute('target');
       });
+      // Make the whole ticket card tappable — clicking anywhere navigates to the ticket.
+      // The link inside still looks like a link (blue + underlined) as requested.
+      evt.detail.target.querySelectorAll('a[href]').forEach(function(a) {
+        var card = a.closest('div.rounded-lg');
+        if (!card) return;
+        card.style.cursor = 'pointer';
+        var href = a.href;
+        card.addEventListener('click', function(e) {
+          if (e.target.tagName !== 'A') window.location.href = href;
+        });
+      });
     }
     if (evt.detail.target.id && evt.detail.target.id.startsWith('cards-')) {
       hideModal('addCardModal');
