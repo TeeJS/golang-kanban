@@ -871,7 +871,18 @@ func editCardHandler(w http.ResponseWriter, r *http.Request, id int) {
 		return
 	}
 
-	if err := tmpl.ExecuteTemplate(w, "card_edit_fragment.html", card); err != nil {
+	statuses, err := getStatuses()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	data := struct {
+		*Card
+		Statuses []Status
+	}{card, statuses}
+
+	if err := tmpl.ExecuteTemplate(w, "card_edit_fragment.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -882,10 +893,17 @@ func updateCardHandler(w http.ResponseWriter, r *http.Request, id int) {
 		return
 	}
 
+	card, err := getCardByID(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
 	title := r.FormValue("title")
 	description := r.FormValue("description")
 	subtasks := r.FormValue("subtasks")
 	dueDateStr := r.FormValue("due_on")
+	newStatus := r.FormValue("status")
 
 	var dueOn sql.NullTime
 	if dueDateStr != "" {
@@ -894,10 +912,30 @@ func updateCardHandler(w http.ResponseWriter, r *http.Request, id int) {
 		}
 	}
 
-	_, err := db.Exec(`UPDATE cards SET title=$1, description=$2, subtasks=$3, updated_at=NOW(), due_on=$4 WHERE id=$5`, title, description, subtasks, dueOn, id)
+	_, err = db.Exec(`UPDATE cards SET title=$1, description=$2, subtasks=$3, updated_at=NOW(), due_on=$4 WHERE id=$5`, title, description, subtasks, dueOn, id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	if newStatus != "" && newStatus != card.Status {
+		if !isValidStatus(newStatus) {
+			http.Error(w, "Invalid status", http.StatusBadRequest)
+			return
+		}
+		var maxOrder int
+		if err := db.QueryRow(
+			`SELECT COALESCE(MAX(card_order), 0) FROM cards WHERE category=$1 AND status=$2`,
+			card.Category, newStatus,
+		).Scan(&maxOrder); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if _, err := db.Exec(`UPDATE cards SET status=$1, card_order=$2 WHERE id=$3`, newStatus, maxOrder+1, id); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		broadcastBoardUpdate()
 	}
 
 	updated, err := getCardByID(id)
