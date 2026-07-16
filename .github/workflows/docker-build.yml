@@ -26,6 +26,7 @@ jobs:
           # - commit SHA as a fallback
           tags: |
             type=semver,pattern={{version}}
+            type=match,pattern=v(\d+.\d+),group=1
             type=ref,event=branch
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
@@ -47,7 +48,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           platforms: linux/amd64 #,linux/arm64 action takes too long, enable later
-          push: true
+          # Docker media types (not OCI) so Unraid's update check can read the manifest
+          outputs: type=image,oci-mediatypes=false,push=true
           provenance: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -66,6 +68,7 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/golang-kanban-mcp
           tags: |
             type=semver,pattern={{version}}
+            type=match,pattern=v(\d+.\d+),group=1
             type=ref,event=branch
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
@@ -88,7 +91,8 @@ jobs:
         with:
           file: Dockerfile.mcp
           platforms: linux/amd64
-          push: true
+          # Docker media types (not OCI) so Unraid's update check can read the manifest
+          outputs: type=image,oci-mediatypes=false,push=true
           provenance: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
