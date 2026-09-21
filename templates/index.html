@@ -369,6 +369,7 @@
         htmx.process(document.getElementById('board'));
         initSortable();
         initCardMinimize();
+        applyRandomPicks();
       });
   }
 
@@ -507,6 +508,76 @@
     })).then(function() {
       doneContainer.innerHTML = '';
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Random To Do pick — move a random card to the top and outline it in red
+  // ---------------------------------------------------------------------------
+  var RANDOM_PICK_KEY = 'randomTodoPicks';
+  var RANDOM_PICK_CLASSES = ['ring-2', 'ring-red-500', 'random-pick'];
+
+  function getRandomPicks() {
+    try {
+      return JSON.parse(localStorage.getItem(RANDOM_PICK_KEY)) || {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function setRandomPick(category, cardId) {
+    var picks = getRandomPicks();
+    if (cardId === null) {
+      delete picks[category];
+    } else {
+      picks[category] = cardId;
+    }
+    localStorage.setItem(RANDOM_PICK_KEY, JSON.stringify(picks));
+  }
+
+  function applyRandomPicks() {
+    document.querySelectorAll('.random-pick').forEach(function(el) {
+      el.classList.remove.apply(el.classList, RANDOM_PICK_CLASSES);
+    });
+
+    var picks = getRandomPicks();
+    Object.keys(picks).forEach(function(category) {
+      var container = document.getElementById('cards-' + category + '-todo');
+      if (!container) return;
+      var card = container.querySelector('[data-id="' + picks[category] + '"]');
+      if (!card) {
+        // Card left the To Do column (or was deleted) — drop the pick.
+        setRandomPick(category, null);
+        return;
+      }
+      card.classList.add.apply(card.classList, RANDOM_PICK_CLASSES);
+    });
+  }
+
+  function pickRandomTodo(category) {
+    var container = document.getElementById('cards-' + category + '-todo');
+    if (!container) return;
+
+    var cards = Array.from(container.children).filter(function(c) {
+      return c.getAttribute('data-id') !== null;
+    });
+    if (cards.length === 0) return;
+
+    var winner = cards[Math.floor(Math.random() * cards.length)];
+    container.insertBefore(winner, container.firstChild);
+
+    var order = Array.from(container.children)
+      .map(function(c) { return c.getAttribute('data-id'); })
+      .filter(function(id) { return id !== null; })
+      .map(Number);
+
+    fetch('/card/order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category: category, status: 'todo', order: order })
+    });
+
+    setRandomPick(category, winner.getAttribute('data-id'));
+    applyRandomPicks();
   }
 
   // ---------------------------------------------------------------------------
@@ -864,6 +935,7 @@
     initSortable();
     initSettingsSortable();
     initCardMinimize();
+    applyRandomPicks();
 
     var evtSource = new EventSource('/events');
     evtSource.addEventListener('board-updated', function() {

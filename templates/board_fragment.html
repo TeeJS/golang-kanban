@@ -31,6 +31,16 @@
               {{if eq $st.Slug "done"}}<i class="bi bi-check-circle text-green-500 mr-2"></i>{{end}}
               {{$st.Name}}
             </h3>
+            {{if eq $st.Slug "todo"}}
+            <button
+              type="button"
+              onclick="pickRandomTodo('{{$cat.Slug}}')"
+              title="Pick a random card"
+              class="text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 transition-colors duration-200"
+            >
+              <i class="bi bi-dice-5-fill text-lg"></i>
+            </button>
+            {{end}}
             {{if eq $st.Slug "done"}}
             <button
               type="button"
