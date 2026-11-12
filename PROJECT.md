@@ -63,3 +63,60 @@ server reachable over the network, with no manual steps per session.
   `list_categories`, `list_statuses`.
 - **Prerequisite work in `main.go`:** JSON write endpoints (`POST/PATCH/DELETE` under
   `/api/cards`) that reuse existing handler logic and trigger the existing SSE broadcast.
+
+---
+
+# Project Charter: Freshservice 429 fix (Unassigned view)
+
+**Date:** 2026-11-12
+**Status:** APPROVED 2026-11-12. Code written in `main.go`, not yet built by CI or deployed.
+Differences from the proposal: a `Retry-After` longer than 15 s is not waited out (the refresh
+stops and last-known tasks are shown), cards are now listed in ticket order instead of
+completion order, and a failed refresh is retried at most once per 60 s.
+
+**Problem:** `/unassigned/fragment` ([main.go](main.go) `unassignedFragmentHandler`) makes
+2 ticket searches plus one `/tickets/{id}/tasks` call per open ticket (about 70) on every
+browser load, every refresh interval (default 300 s) and every row-open, with no cache. The
+Freshservice limit is per minute for the whole account, so bursts get HTTP 429. Each 429
+silently drops that ticket's tasks from the view and writes one log line (about 70 per burst).
+
+## 1. What is the one thing this must do?
+
+The Unassigned view keeps showing every unassigned Freshservice task, even when Freshservice
+returns 429.
+
+## 2. What would be wrong if we shipped "working" software without it?
+
+The log gets quiet but tasks still vanish from the kiosk during bursts, or errors are hidden
+instead of the cause being fixed.
+
+## 3. What is explicitly off-limits as a workaround?
+
+- Muting or removing the log lines.
+- Only lowering concurrency or adding sleeps (the limit is calls per minute, not call rate).
+- Telling the user to raise the refresh-interval setting by hand.
+- Removing or shrinking the task lookup.
+
+## 4. Deployment target and backup location
+
+- **Deployment:** GitHub Actions builds the image, Unraid runs the container on `:latest`.
+  No local Go build, no remote access to the Unraid host without explicit permission.
+- **Backups:** git (branch + PR) covers it; no separate file backups.
+
+## 5. How will we verify it is done?
+
+1. CI build is green.
+2. After deploy, load the board and the kiosk in two browsers at once: logs show one
+   Freshservice summary line and zero 429 lines, and the unassigned tasks are present.
+3. The summary line shows Freshservice's remaining/total rate-limit numbers (reveals the real limit).
+4. Reload again within 60 s: no new Freshservice calls. After 60 s: exactly one refresh.
+
+## Design
+
+- Cache the finished card list for 60 s; concurrent requests wait on one in-flight refresh
+  (stdlib mutex, no new dependency).
+- On 429: wait `Retry-After`, retry that call once; if it 429s again, stop calling Freshservice
+  for this refresh.
+- For any ticket not refreshed, keep its last-known tasks.
+- Replace per-ticket error lines with one summary line per refresh.
+- Not touched: helpdesk column, refresh-interval setting, what the view displays.
