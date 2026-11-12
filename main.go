@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -2048,12 +2049,115 @@ func unassignedFragmentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var cards []UnassignedCard
+	cards := getUnassignedCards()
+
+	data := struct {
+		Cards  []UnassignedCard
+		Domain string
+	}{
+		Cards:  cards,
+		Domain: fsDomain,
+	}
+
+	if err := tmpl.ExecuteTemplate(w, "unassigned_row.html", data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Unassigned view: shared cache + Freshservice rate-limit handling
+//
+// Freshservice limits API calls per minute for the whole account. Building the
+// Unassigned view takes 2 ticket searches plus one tasks call per open ticket,
+// so every browser doing that on its own quickly gets HTTP 429. Instead, one
+// refresh is shared by all browsers and reused for unassignedCacheTTL.
+// ---------------------------------------------------------------------------
+
+const (
+	unassignedCacheTTL = 60 * time.Second
+	maxRetryWait       = 15 * time.Second // longest Retry-After we are willing to sit out
+	defaultRetryWait   = 2 * time.Second  // used when a 429 carries no Retry-After
+)
+
+// errPassStopped marks tickets skipped because Freshservice kept returning 429.
+var errPassStopped = errors.New("skipped: freshservice rate limit hit earlier in this refresh")
+
+// rateLimitError is returned by fetchTicketTasks on HTTP 429.
+type rateLimitError struct {
+	RetryAfter time.Duration
+}
+
+func (e *rateLimitError) Error() string {
+	return "freshservice tasks API returned 429"
+}
+
+// fsRateInfo holds the rate-limit counters Freshservice reports in response headers.
+type fsRateInfo struct {
+	Total     int
+	Remaining int
+	Seen      bool
+}
+
+func parseRateInfo(h http.Header) fsRateInfo {
+	total, errT := strconv.Atoi(strings.TrimSpace(h.Get("X-RateLimit-Total")))
+	remaining, errR := strconv.Atoi(strings.TrimSpace(h.Get("X-RateLimit-Remaining")))
+	if errT != nil || errR != nil {
+		return fsRateInfo{}
+	}
+	return fsRateInfo{Total: total, Remaining: remaining, Seen: true}
+}
+
+// parseRetryAfter reads a Retry-After header given in whole seconds; 0 if absent or unreadable.
+func parseRetryAfter(v string) time.Duration {
+	secs, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || secs < 0 {
+		return 0
+	}
+	return time.Duration(secs) * time.Second
+}
+
+var unassignedState struct {
+	mu        sync.Mutex
+	cards     []UnassignedCard
+	tasks     map[int][]TicketTask // last-known tasks per ticket, used when a call fails
+	fetchedAt time.Time            // when the last refresh ran, even if it failed
+	haveGood  bool                 // a refresh has fully succeeded at least once
+}
+
+// getUnassignedCards returns the Unassigned view cards. Concurrent callers wait
+// on the lock, so only one refresh runs at a time and the rest reuse its result.
+func getUnassignedCards() []UnassignedCard {
+	unassignedState.mu.Lock()
+	defer unassignedState.mu.Unlock()
+
+	if !unassignedState.fetchedAt.IsZero() && time.Since(unassignedState.fetchedAt) < unassignedCacheTTL {
+		return unassignedState.cards
+	}
+
+	cards, tasks, complete := buildUnassignedCards(unassignedState.tasks)
+	// Stamp even after a failure so a struggling Freshservice is retried at most once per TTL.
+	unassignedState.fetchedAt = time.Now()
+	if !complete && unassignedState.haveGood {
+		// A ticket search failed: keep showing the last good list.
+		return unassignedState.cards
+	}
+	unassignedState.cards = cards
+	unassignedState.tasks = tasks
+	unassignedState.haveGood = complete
+	return cards
+}
+
+// buildUnassignedCards queries Freshservice. prev holds last-known tasks per ticket; a
+// ticket whose tasks cannot be fetched keeps showing those. complete is false when
+// either ticket search failed.
+func buildUnassignedCards(prev map[int][]TicketTask) (cards []UnassignedCard, next map[int][]TicketTask, complete bool) {
+	complete = true
 
 	// Unassigned tickets
 	tickets, err := fetchUnassignedTickets()
 	if err != nil {
 		log.Printf("Unassigned tickets fetch error: %v", err)
+		complete = false
 	}
 	for _, t := range tickets {
 		cards = append(cards, UnassignedCard{
@@ -2069,54 +2173,156 @@ func unassignedFragmentHandler(w http.ResponseWriter, r *http.Request) {
 	taskTickets, err := fetchRecentOpenTickets()
 	if err != nil {
 		log.Printf("Task tickets fetch error: %v", err)
+		complete = false
 	}
 
-	var mu sync.Mutex
+	pass := &taskPass{}
+	results := make([][]TicketTask, len(taskTickets))
+	have := make([]bool, len(taskTickets))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 3)
-	for _, tt := range taskTickets {
+	for i, tt := range taskTickets {
 		wg.Add(1)
-		go func(ticketID int, subject string) {
+		go func(i, ticketID int) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			tasks, err := fetchTicketTasks(ticketID)
-			if err != nil {
-				log.Printf("Task fetch error for ticket %d: %v", ticketID, err)
+			tasks, err := pass.fetch(ticketID)
+			if err == nil {
+				results[i], have[i] = tasks, true
 				return
 			}
-			for _, task := range tasks {
-				if task.Deleted {
-					continue
-				}
-				if (task.Status == 1 || task.Status == 2) &&
-					(task.GroupID == 33000158516 || task.GroupID == 33000158515) {
-					mu.Lock()
-					cards = append(cards, UnassignedCard{
-						TicketID: ticketID,
-						Subject:  subject,
-						GroupID:  task.GroupID,
-						DueBy:    task.DueDate,
-						IsTask:   true,
-					})
-					mu.Unlock()
-				}
+			old, carried := prev[ticketID]
+			if carried {
+				results[i], have[i] = old, true
 			}
-		}(tt.ID, tt.Subject)
+			pass.recordFailure(err, carried)
+		}(i, tt.ID)
 	}
 	wg.Wait()
 
-	data := struct {
-		Cards  []UnassignedCard
-		Domain string
-	}{
-		Cards:  cards,
-		Domain: fsDomain,
+	next = make(map[int][]TicketTask, len(taskTickets))
+	for i, tt := range taskTickets {
+		if !have[i] {
+			continue
+		}
+		next[tt.ID] = results[i]
+		for _, task := range results[i] {
+			if task.Deleted {
+				continue
+			}
+			if (task.Status == 1 || task.Status == 2) &&
+				(task.GroupID == 33000158516 || task.GroupID == 33000158515) {
+				cards = append(cards, UnassignedCard{
+					TicketID: tt.ID,
+					Subject:  tt.Subject,
+					GroupID:  task.GroupID,
+					DueBy:    task.DueDate,
+					IsTask:   true,
+				})
+			}
+		}
 	}
 
-	if err := tmpl.ExecuteTemplate(w, "unassigned_row.html", data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if len(taskTickets) > 0 {
+		pass.logSummary(len(taskTickets))
 	}
+	return cards, next, complete
+}
+
+// taskPass coordinates the per-ticket task calls of one refresh: it pauses every worker
+// when Freshservice returns 429, retries each call at most once, gives up on the rest of
+// the refresh if that retry is also rate-limited, and tallies one summary for the log.
+type taskPass struct {
+	mu       sync.Mutex
+	until    time.Time // no calls before this time (set by a 429)
+	stopped  bool      // stop calling Freshservice for the rest of this refresh
+	calls    int
+	rateHits int
+	failed   int
+	carried  int
+	firstErr error
+	rate     fsRateInfo // lowest "remaining" seen
+}
+
+func (p *taskPass) waitTurn() bool {
+	p.mu.Lock()
+	wait := time.Until(p.until)
+	p.mu.Unlock()
+	if wait > 0 {
+		time.Sleep(wait)
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return !p.stopped
+}
+
+func (p *taskPass) fetch(ticketID int) ([]TicketTask, error) {
+	for attempt := 1; ; attempt++ {
+		if !p.waitTurn() {
+			return nil, errPassStopped
+		}
+		tasks, rate, err := fetchTicketTasks(ticketID)
+
+		p.mu.Lock()
+		p.calls++
+		if rate.Seen && (!p.rate.Seen || rate.Remaining < p.rate.Remaining) {
+			p.rate = rate
+		}
+		p.mu.Unlock()
+
+		var rl *rateLimitError
+		if !errors.As(err, &rl) {
+			return tasks, err
+		}
+
+		wait := rl.RetryAfter
+		if wait <= 0 {
+			wait = defaultRetryWait
+		}
+		p.mu.Lock()
+		p.rateHits++
+		if attempt >= 2 || wait > maxRetryWait {
+			p.stopped = true
+		} else if t := time.Now().Add(wait); t.After(p.until) {
+			p.until = t
+		}
+		stopped := p.stopped
+		p.mu.Unlock()
+		if stopped {
+			return nil, err
+		}
+	}
+}
+
+func (p *taskPass) recordFailure(err error, carried bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.failed++
+	if carried {
+		p.carried++
+	}
+	if p.firstErr == nil && !errors.Is(err, errPassStopped) {
+		p.firstErr = err
+	}
+}
+
+func (p *taskPass) logSummary(tickets int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	rate := "rate-limit headers not seen"
+	if p.rate.Seen {
+		rate = fmt.Sprintf("lowest rate-limit remaining %d of %d", p.rate.Remaining, p.rate.Total)
+	}
+	msg := fmt.Sprintf("Unassigned refresh: %d tickets, %d task calls, %d failed (%d kept last-known), %d rate-limited (429), %s",
+		tickets, p.calls, p.failed, p.carried, p.rateHits, rate)
+	if p.stopped {
+		msg += "; stopped early after repeated 429"
+	}
+	if p.firstErr != nil {
+		msg += fmt.Sprintf("; first error: %v", p.firstErr)
+	}
+	log.Print(msg)
 }
 
 func fetchRecentOpenTickets() ([]FreshserviceTicket, error) {
@@ -2163,15 +2369,15 @@ func fetchRecentOpenTickets() ([]FreshserviceTicket, error) {
 	return fsResp.Tickets, nil
 }
 
-func fetchTicketTasks(ticketID int) ([]TicketTask, error) {
+func fetchTicketTasks(ticketID int) ([]TicketTask, fsRateInfo, error) {
 	if fsAPIKey == "" || fsDomain == "" {
-		return nil, fmt.Errorf("freshservice not configured")
+		return nil, fsRateInfo{}, fmt.Errorf("freshservice not configured")
 	}
 
 	apiURL := fmt.Sprintf("https://%s/api/v2/tickets/%d/tasks", fsDomain, ticketID)
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
-		return nil, err
+		return nil, fsRateInfo{}, err
 	}
 	req.SetBasicAuth(fsAPIKey, "X")
 	req.Header.Set("Content-Type", "application/json")
@@ -2179,25 +2385,30 @@ func fetchTicketTasks(ticketID int) ([]TicketTask, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fsRateInfo{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	rate := parseRateInfo(resp.Header)
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return nil, rate, &rateLimitError{RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After"))}
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("freshservice tasks API returned %d", resp.StatusCode)
+		return nil, rate, fmt.Errorf("freshservice tasks API returned %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, rate, err
 	}
 
 	var tr TicketTasksResponse
 	if err := json.Unmarshal(body, &tr); err != nil {
-		return nil, err
+		return nil, rate, err
 	}
 
-	return tr.Tasks, nil
+	return tr.Tasks, rate, nil
 }
 
 // ---------------------------------------------------------------------------
