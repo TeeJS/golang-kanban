@@ -120,3 +120,52 @@ instead of the cause being fixed.
 - For any ticket not refreshed, keep its last-known tasks.
 - Replace per-ticket error lines with one summary line per refresh.
 - Not touched: helpdesk column, refresh-interval setting, what the view displays.
+
+---
+
+# Project Charter: Wait for Postgres at boot
+
+**Date:** 2026-11-12
+**Status:** APPROVED 2026-11-12. Code written in `main.go` (`waitForDatabase`), not yet built by CI
+or deployed.
+
+**Problem:** `sql.Open` does not connect, so the first real connection happens inside
+`runMigrations()`. If Postgres isn't answering yet, that fails and `log.Fatalf` exits the program
+(logged 10/13, 10/29 and 11/12: `Migration failed: dial tcp 192.168.1.25:5435: connect: connection
+refused`). After the first two, the next "Server started" was 3 and 4 days later.
+
+## 1. What is the one thing this must do?
+
+Kanban starts by itself whenever Postgres becomes reachable, with no manual start.
+
+## 2. What would be wrong if we shipped "working" software without it?
+
+It survives a short Postgres delay but still exits after a longer one, or retries silently so
+nobody can tell why the board is down.
+
+## 3. What is explicitly off-limits as a workaround?
+
+- Telling the user to start the container by hand.
+- A fixed sleep before connecting.
+- Hiding the error.
+
+## 4. Deployment target and backup location
+
+- **Deployment:** GitHub Actions builds the image, Unraid runs the container on `:latest`. No
+  local Go build, no remote access to the Unraid host without explicit permission.
+- **Backups:** git (branch + PR) covers it.
+
+## 5. How will we verify it is done?
+
+1. CI build and lint are green.
+2. On Unraid: stop the Postgres container, restart Kanban, and see `Waiting for database` lines.
+   Start Postgres: Kanban logs `Database ready after N attempts` and `Server started` on its own.
+
+## Design
+
+- Before migrations, ping Postgres (5 s per try). On failure wait 1 s, doubling up to 30 s
+  (1, 2, 4, 8, 16, 30, 30, ...) and try again. Never give up (agreed 2026-11-12: if something keeps
+  Postgres from starting at all, the user will notice and intervene).
+- One log line per failed try; one `Database ready after N attempts` line once it connects (only
+  if at least one try failed).
+- A real migration error still exits. Unraid's start order / restart policy is not touched.

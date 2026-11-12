@@ -180,6 +180,31 @@ func broadcastBoardUpdate() {
 // Startup
 // ---------------------------------------------------------------------------
 
+// waitForDatabase blocks until Postgres answers, so Kanban can start even when Postgres
+// comes up after it. Each try gets 5 s; the wait between tries starts at 1 s and doubles
+// up to 30 s (1, 2, 4, 8, 16, 30, 30, ...). It never gives up.
+func waitForDatabase(host, port string) {
+	const (
+		tryTimeout = 5 * time.Second
+		maxDelay   = 30 * time.Second
+	)
+	delay := time.Second
+	for attempt := 1; ; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), tryTimeout)
+		err := db.PingContext(ctx)
+		cancel()
+		if err == nil {
+			if attempt > 1 {
+				log.Printf("Database ready after %d attempts", attempt)
+			}
+			return
+		}
+		log.Printf("Waiting for database at %s:%s (attempt %d, retrying in %s): %v", host, port, attempt, delay, err)
+		time.Sleep(delay)
+		delay = min(delay*2, maxDelay)
+	}
+}
+
 func main() {
 	dbUser := getEnv("DB_USER", "user")
 	dbPass := getEnv("DB_PASS", "password")
@@ -203,6 +228,8 @@ func main() {
 			log.Printf("Error closing database: %v", err)
 		}
 	}()
+
+	waitForDatabase(dbHost, dbPort)
 
 	if err := runMigrations(); err != nil {
 		log.Fatalf("Migration failed: %v", err)
